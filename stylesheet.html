@@ -1,0 +1,1258 @@
+<style>
+  :root {
+    --ink: #f5f1e6;
+    --ink-soft: #c9d3e8;
+    --lapis: #1f4e8c;
+    --lapis-dark: #0a1424;
+    --gold: #d9a441;
+    --gold-deep: #b8862b;
+    --base: #0e1a2e;
+    --base-panel: #172a47;
+    --red: #e2543f;
+    --border: #2e4a73;
+  }
+  body { font-family: 'Noto Serif', serif; background: var(--base); margin:0; padding-bottom: 104px; }
+
+  /* ---------- Login screen ---------- */
+  #login-overlay {
+    position: fixed; inset: 0; z-index: 100;
+    display: flex; align-items: center; justify-content: center;
+    background: radial-gradient(circle at top, #1b3a66 0%, #0f1f3a 55%, #070d19 100%);
+    padding: 20px;
+  }
+  #login-overlay.hidden { display: none; }
+  .login-card {
+    width: 100%; max-width: 440px;
+    background: var(--base-panel);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    box-shadow: 0 20px 50px rgba(2,5,12,.55);
+    padding: 36px 34px 30px;
+    text-align: center;
+  }
+  .login-card .crest {
+    width: 56px; height: 56px; margin: 0 auto 14px;
+    border-radius: 50%;
+    background: linear-gradient(145deg, var(--gold), var(--lapis));
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 6px 14px rgba(31,78,140,.45);
+  }
+  .login-card h1 {
+    font-family: 'Playfair Display', serif;
+    font-size: 1.35rem;
+    color: var(--gold);
+    letter-spacing: .03em;
+    margin: 0 0 4px;
+  }
+  .login-card p.subtitle {
+    color: var(--ink-soft);
+    font-size: .92rem;
+    margin: 0 0 26px;
+  }
+  .field-group { text-align: left; margin-bottom: 16px; }
+  .field-group label {
+    display: block;
+    font-family: 'Playfair Display', serif;
+    font-size: .72rem;
+    letter-spacing: .06em;
+    color: var(--gold-deep);
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .field-group input,
+  .field-group select {
+    width: 100%;
+    box-sizing: border-box;
+    font-family: 'Noto Serif', serif;
+    font-size: 1rem;
+    color: var(--ink);
+    background: #0a1426;
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    padding: 11px 13px;
+    outline: none;
+    transition: border-color .15s ease, box-shadow .15s ease;
+  }
+  .field-group input::placeholder { color: #7f93b5; }
+  .field-group input:focus,
+  .field-group select:focus {
+    border-color: var(--gold-deep);
+    box-shadow: 0 0 0 3px rgba(184,134,43,.25);
+  }
+  .field-group select { cursor: pointer; }
+  #login-error {
+    color: var(--red);
+    font-size: .85rem;
+    min-height: 1.2em;
+    margin: -4px 0 12px;
+    text-align: left;
+  }
+  #login-submit {
+    width: 100%;
+    font-family: 'Playfair Display', serif;
+    letter-spacing: .03em;
+    font-size: .95rem;
+    color: #0a1424;
+    background: linear-gradient(135deg, var(--gold) 0%, #7a5614 100%);
+    border: none;
+    border-radius: 10px;
+    padding: 13px 16px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    box-shadow: 0 6px 16px rgba(217,164,65,.28);
+    transition: transform .12s ease, box-shadow .12s ease;
+  }
+  #login-submit:hover { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(217,164,65,.36); }
+  #login-submit:active { transform: translateY(0); }
+
+  /* ---------- Login screen extra links (data sheet / leaderboard) ---------- */
+  .login-extra-links {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 18px;
+    margin-top: 18px;
+    flex-wrap: wrap;
+  }
+  .data-sheet-link,
+  .leaderboard-link-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: 'Noto Serif', serif;
+    font-size: .85rem;
+    color: var(--gold-deep);
+    background: none;
+    border: none;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
+    padding: 2px 0;
+  }
+  .data-sheet-link:hover,
+  .leaderboard-link-btn:hover { color: var(--gold); }
+
+  /* ---------- Logged-in badge shown inside the app ---------- */
+  #student-badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--base-panel);
+    border: 1px solid var(--border);
+    color: var(--ink-soft);
+    font-size: .85rem;
+    padding: 6px 12px;
+    border-radius: 999px;
+    margin: 0 auto 18px;
+    width: fit-content;
+  }
+  #student-badge b { color: var(--gold); font-family: 'Playfair Display', serif; font-size: .8rem; letter-spacing: .02em; }
+  #student-badge button {
+    background: none; border: none; color: var(--gold-deep);
+    text-decoration: underline; cursor: pointer; font-size: .8rem; font-family: inherit;
+    margin-left: 4px; padding: 0;
+  }
+
+  #app-content.hidden { display: none; }
+
+  /* ---------- Outline buttons (Data Sheet / Leaderboard, quiz toolbar) ---------- */
+  .canva-button-outline {
+    display: inline-flex;
+    align-items: center;
+    background: #172a47;
+    color: var(--ink);
+    border: 1.5px solid var(--border);
+    font-family: 'Noto Serif', serif;
+    font-size: .9rem;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background-color .15s ease, border-color .15s ease;
+  }
+  .canva-button-outline:hover {
+    background: rgba(217,164,65,.12);
+    border-color: var(--gold-deep);
+  }
+
+  /* ---------- Sound-focus tip banner (Thai learner L/R, S, W/V cues) ---------- */
+  .sound-tip {
+    background: rgba(31,78,140,.28);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--gold);
+  }
+  .sound-tip-title {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-family: 'Playfair Display', serif;
+    font-size: .82rem;
+    letter-spacing: .02em;
+    color: var(--gold);
+    margin-bottom: 5px;
+  }
+  .sound-tip-body {
+    color: var(--ink);
+    font-size: .88rem;
+    margin: 0;
+  }
+  .sound-tip-body b { color: var(--gold); }
+
+  /* ---------- Quiz word-tagging styles (recolored for the Southwest Asia lapis/gold theme) ---------- */
+  .word-token {
+    position: relative;
+    display: inline;
+    cursor: pointer;
+    border-radius: 3px;
+    padding: 0 1px;
+    transition: background-color .15s ease, color .15s ease;
+  }
+  .word-token:hover { background-color: rgba(217,164,65,.20); }
+  .word-token:focus-visible { outline: 2px solid #d9a441; outline-offset: 1px; }
+  .word-token.tagged {
+    background-color: rgba(217,164,65,.20);
+    text-decoration: underline wavy #d9a441;
+    text-underline-offset: 3px;
+    font-weight: 600;
+    /* Keeps a tagged word legible the moment it's tagged, rather than
+       relying on a dark color that nearly vanishes against this
+       translucent gold highlight on the dark theme. */
+    color: #f3dc9f;
+  }
+  .word-token.open { background-color: rgba(217,164,65,.35); }
+  .tag-label {
+    display: inline-block;
+    font-family: 'Playfair Display', serif;
+    font-size: .58em;
+    line-height: 1;
+    vertical-align: super;
+    margin-right: 2px;
+    padding: 1px 4px;
+    border-radius: 4px;
+    background: #1f4e8c;
+    color: #f5f1e6;
+    letter-spacing: .03em;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .word-token.reveal-correct {
+    background-color: rgba(90,168,140,.22);
+    text-decoration: underline wavy #5aa88c;
+    text-underline-offset: 3px;
+    color: #a7ddc7; font-weight: 600; cursor: default;
+  }
+  .word-token.reveal-correct .tag-label { background:#357a63; }
+  .word-token.reveal-partial {
+    background-color: rgba(217,164,65,.24);
+    text-decoration: underline wavy #d9a441;
+    text-underline-offset: 3px;
+    color: #f0d79a; font-weight: 600; cursor: default;
+  }
+  .word-token.reveal-partial .tag-label { background:#b8862b; }
+  .word-token.reveal-wrong {
+    background-color: rgba(196,110,90,.24);
+    text-decoration: line-through #c46e5a;
+    color: #f0ac93; cursor: default;
+  }
+  .word-token.reveal-wrong .tag-label { background:#8a4526; }
+  .word-token.reveal-missed {
+    background-color: rgba(226,84,63,.20);
+    text-decoration: underline dashed #e2543f;
+    text-underline-offset: 3px;
+    color: #f5a89c; font-weight: 600; cursor: default;
+  }
+  .locked .word-token { cursor: default; }
+  .locked .word-token:hover { background-color: transparent; }
+  #cat-popover {
+    position: absolute;
+    z-index: 50;
+    min-width: 200px;
+    max-height: 320px;
+    overflow-y: auto;
+    background: #172a47;
+    border: 1px solid #2e4a73;
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(2,5,12,.55);
+    padding: 8px;
+  }
+  #cat-popover.hidden { display: none; }
+  #cat-popover button {
+    display: flex; align-items: center; gap: 8px;
+    width: 100%; text-align: left;
+    padding: 6px 10px; border-radius: 8px;
+    font-size: .95rem;
+    color: var(--ink);
+    transition: background-color .12s ease;
+  }
+  #cat-popover button:hover { background: rgba(217,164,65,.14); }
+  #cat-popover button:focus-visible { outline: 2px solid #d9a441; outline-offset: 1px; }
+  .fade-in { animation: fadeIn .4s ease both; }
+  @keyframes fadeIn { from { opacity:0; transform: translateY(8px);} to {opacity:1; transform:none;} }
+
+  .canva-header { background: linear-gradient(135deg, var(--lapis) 0%, var(--lapis-dark) 100%); }
+  .canva-header .canva-text { color: var(--gold); }
+  .canva-panel { background: var(--base-panel); border: 1px solid var(--border); }
+  .canva-panel .canva-text { color: var(--ink); }
+  .canva-section { background: #0b1626; border: 1px solid var(--border); }
+  .canva-tag { background: #172a47; border: 1px solid var(--border); color: var(--ink-soft); font-size: .8rem; }
+  .canva-button { background: var(--lapis); color: #f5f1e6; }
+  .canva-button:hover { background: var(--gold-deep); color: #0a1424; }
+
+  /* ---------- Leaderboard modal ---------- */
+  #leaderboard-overlay {
+    position: fixed; inset: 0; z-index: 110;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(3,6,14, .70);
+    padding: 20px;
+  }
+  #leaderboard-overlay.hidden { display: none; }
+  .leaderboard-card {
+    width: 100%; max-width: 720px;
+    max-height: 84vh;
+    background: var(--base-panel);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    box-shadow: 0 24px 60px rgba(2,5,12,.6);
+    padding: 26px 28px 24px;
+    display: flex;
+    flex-direction: column;
+  }
+  .leaderboard-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 4px;
+  }
+  .leaderboard-header h2 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'Playfair Display', serif;
+    font-size: 1.2rem;
+    color: var(--gold);
+    margin: 0;
+  }
+  .leaderboard-header button {
+    background: none;
+    border: none;
+    color: var(--ink-soft);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color .12s ease;
+  }
+  .leaderboard-header button:hover { background: rgba(217,164,65,.16); }
+  .leaderboard-subtitle {
+    color: var(--ink-soft);
+    font-size: .88rem;
+    margin: 4px 0 16px;
+  }
+  #leaderboard-body {
+    overflow-y: auto;
+    overflow-x: auto;
+    flex: 1;
+  }
+  #leaderboard-loading,
+  #leaderboard-empty {
+    color: var(--ink-soft);
+    text-align: center;
+    padding: 30px 10px;
+    font-size: .95rem;
+  }
+  #leaderboard-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: .92rem;
+  }
+  #leaderboard-table thead th {
+    text-align: left;
+    font-family: 'Playfair Display', serif;
+    font-size: .72rem;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    color: var(--gold-deep);
+    border-bottom: 2px solid var(--border);
+    padding: 8px 8px;
+  }
+  #leaderboard-table tbody td {
+    padding: 9px 8px;
+    border-bottom: 1px solid rgba(46,74,115,.6);
+    color: var(--ink);
+  }
+  #leaderboard-table tbody tr:hover { background: rgba(217,164,65,.08); }
+  #leaderboard-table tbody tr.leaderboard-me {
+    background: rgba(90,168,140,.16);
+    font-weight: 700;
+  }
+
+  /* ---------- Result summary modal ---------- */
+  /* Shown once, immediately after a reading session finishes, as a
+     quick at-a-glance score summary that sits on top of the full
+     inline feedback list already on the page. */
+  #result-overlay {
+    position: fixed; inset: 0; z-index: 120;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(3,6,14, .78);
+    padding: 20px;
+  }
+  #result-overlay.hidden { display: none; }
+  .result-card {
+    position: relative;
+    width: 100%; max-width: 460px;
+    max-height: 88vh;
+    overflow-y: auto;
+    background: var(--base-panel);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    box-shadow: 0 26px 64px rgba(2,5,12,.6);
+    padding: 34px 30px 26px;
+    text-align: center;
+  }
+  .result-close-btn {
+    position: absolute;
+    top: 14px; right: 14px;
+    background: none;
+    border: none;
+    color: var(--ink-soft);
+    cursor: pointer;
+    padding: 6px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color .12s ease;
+  }
+  .result-close-btn:hover { background: rgba(217,164,65,.16); }
+  .result-icon-wrap {
+    width: 58px; height: 58px; margin: 0 auto 14px;
+    border-radius: 50%;
+    background: linear-gradient(145deg, var(--gold), var(--lapis));
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 6px 14px rgba(31,78,140,.45);
+  }
+  .result-title {
+    font-family: 'Playfair Display', serif;
+    font-size: 1.3rem;
+    color: var(--gold);
+    letter-spacing: .02em;
+    margin: 0 0 6px;
+  }
+  .result-student-line {
+    color: var(--ink-soft);
+    font-size: .92rem;
+    margin: 0 0 20px;
+  }
+  .result-ring-wrap {
+    position: relative;
+    width: 132px; height: 132px;
+    margin: 0 auto 18px;
+  }
+  .result-ring-svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+  .result-ring-track {
+    fill: none;
+    stroke: rgba(46,74,115,.6);
+    stroke-width: 10;
+  }
+  .result-ring-fill {
+    fill: none;
+    stroke: var(--gold);
+    stroke-width: 10;
+    stroke-linecap: round;
+    stroke-dasharray: 326.7256;
+    stroke-dashoffset: 326.7256;
+    transition: stroke-dashoffset .8s ease;
+  }
+  .result-ring-label {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+  }
+  #result-score-percent {
+    font-family: 'Playfair Display', serif;
+    font-size: 1.7rem;
+    font-weight: 700;
+    color: var(--ink);
+    line-height: 1;
+  }
+  .result-ring-caption {
+    color: var(--ink-soft);
+    font-size: .7rem;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    margin-top: 4px;
+  }
+  .result-message {
+    color: var(--ink);
+    font-size: .98rem;
+    margin: 0 0 18px;
+  }
+  .result-stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .result-stat {
+    background: #0a1426;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+  .result-stat-value {
+    font-family: 'Playfair Display', serif;
+    font-size: 1.15rem;
+    color: var(--gold);
+    font-weight: 700;
+  }
+  .result-stat-label {
+    color: var(--ink-soft);
+    font-size: .74rem;
+    letter-spacing: .03em;
+    text-transform: uppercase;
+    text-align: center;
+  }
+  .result-save-status {
+    color: var(--ink-soft);
+    font-size: .85rem;
+    min-height: 1.2em;
+    margin: 0 0 18px;
+  }
+  .result-save-status.result-save-ok { color: #a7ddc7; }
+  .result-save-status.result-save-fail { color: #f5a89c; }
+  .result-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: center;
+  }
+
+  /* ---------- Session Notes (single overall comment box) ---------- */
+  /* One free-text box for the teacher's overall observations about the
+     whole reading session, filled in whenever it's convenient rather
+     than interrupting live tagging with a popup after every word. */
+  .session-notes-wrap { margin-bottom: 20px; }
+  .session-notes-wrap label {
+    display: block;
+    font-family: 'Playfair Display', serif;
+    font-size: .78rem;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    color: var(--gold-deep);
+    margin-bottom: 6px;
+  }
+  #session-notes {
+    width: 100%;
+    box-sizing: border-box;
+    font-family: 'Noto Serif', serif;
+    font-size: .95rem;
+    color: var(--ink);
+    background: #0a1426;
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 13px;
+    outline: none;
+    resize: vertical;
+    min-height: 64px;
+    transition: border-color .15s ease, box-shadow .15s ease;
+  }
+  #session-notes::placeholder { color: #7f93b5; }
+  #session-notes:focus {
+    border-color: var(--gold-deep);
+    box-shadow: 0 0 0 3px rgba(184,134,43,.25);
+  }
+
+  /* ---------- Leaderboard per-row reprint icon button ---------- */
+  .leaderboard-print-btn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--ink-soft);
+    cursor: pointer;
+    padding: 4px 7px;
+    border-radius: 7px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color .12s ease, border-color .12s ease;
+  }
+  .leaderboard-print-btn:hover {
+    background: rgba(217,164,65,.14);
+    border-color: var(--gold-deep);
+  }
+
+  /* ---------- Custom confirm modal (replaces the native window.confirm) ---------- */
+  /* "Finish & Save" used to trigger the browser's own built-in
+     window.confirm() dialog -- a plain gray OS-styled popup with a
+     generic title bar that visually clashes with the rest of this
+     lapis/gold themed app and cannot be restyled at all. This
+     modal replaces it with a card that matches the Login screen,
+     Leaderboard, and Result Summary modals already in this file, so
+     every popup in the app now shares one consistent look. */
+  #confirm-overlay {
+    position: fixed; inset: 0; z-index: 130;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(3,6,14, .78);
+    padding: 20px;
+  }
+  #confirm-overlay.hidden { display: none; }
+  .confirm-card {
+    width: 100%; max-width: 400px;
+    background: var(--base-panel);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    box-shadow: 0 26px 64px rgba(2,5,12,.6);
+    padding: 32px 28px 26px;
+    text-align: center;
+  }
+  .confirm-icon-wrap {
+    width: 52px; height: 52px; margin: 0 auto 16px;
+    border-radius: 50%;
+    background: linear-gradient(145deg, var(--gold), var(--lapis));
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 6px 14px rgba(31,78,140,.45);
+  }
+  .confirm-title {
+    font-family: 'Playfair Display', serif;
+    font-size: 1.2rem;
+    color: var(--gold);
+    letter-spacing: .02em;
+    margin: 0 0 10px;
+  }
+  .confirm-message {
+    color: var(--ink);
+    font-size: .95rem;
+    line-height: 1.55;
+    margin: 0 0 26px;
+  }
+  .confirm-actions {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .confirm-actions button {
+    font-family: 'Noto Serif', serif;
+    font-size: .92rem;
+    border: none;
+    cursor: pointer;
+  }
+  .confirm-actions button:focus-visible {
+    outline: 2px solid var(--gold);
+    outline-offset: 2px;
+  }
+  /* Reuses the same var(--lapis)/var(--gold-deep) pairing as
+     .canva-button and .canva-button-outline elsewhere in this file,
+     so both confirm-modal buttons keep light text on a solid dark
+     fill (or dark text on a bright gold hover) in every state --
+     never light text on a light background. */
+  .confirm-cancel-btn { background: #172a47; color: var(--ink); border: 1.5px solid var(--border) !important; }
+  .confirm-cancel-btn:hover { background: rgba(217,164,65,.14); border-color: var(--gold-deep) !important; }
+  .confirm-ok-btn { background: var(--lapis); color: #f5f1e6; }
+  .confirm-ok-btn:hover { background: var(--gold-deep); color: #0a1424; }
+
+  /* ---------- Floating reading timer (Start Reading / live elapsed clock) ---------- */
+  /* Previously this control lived inline in the toolbar next to the
+     "Words tagged" counter, which meant the teacher had to scroll all
+     the way back up to press Start Reading, then scroll back down to
+     the passage to actually follow along with the student -- by the
+     time they scrolled back, the read-aloud had already begun
+     un-timed. It now renders as a floating pill fixed to the bottom
+     of the viewport (see #timer-fab-wrap below) so it stays on screen
+     and one tap away no matter how far down the passage the teacher
+     has scrolled. The underlying behavior is unchanged: the teacher
+     presses Start Reading the moment the student begins reading
+     aloud; the timer keeps running (updating the mm:ss display once a
+     second) until "Finish & Save" is pressed, at which point
+     script.html stops it automatically and folds the elapsed seconds
+     into the WCPM calculation. There is no separate pause control --
+     a read-aloud pass is meant to be timed start-to-finish in one
+     continuous run, matching how WCPM is measured on a standard Oral
+     Reading Fluency (ORF) report. */
+  #timer-fab-wrap {
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    z-index: 90;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+  }
+  #timer-start-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'Noto Serif', serif;
+    font-size: .92rem;
+    font-weight: 600;
+    color: var(--ink);
+    background: var(--base-panel);
+    border: 1.5px solid var(--border);
+    border-radius: 999px;
+    padding: 13px 20px;
+    cursor: pointer;
+    box-shadow: 0 12px 28px rgba(2,5,12,.55);
+    transition: background-color .15s ease, border-color .15s ease, transform .15s ease;
+  }
+  #timer-start-btn:hover {
+    background: rgba(217,164,65,.16);
+    border-color: var(--gold-deep);
+    transform: translateY(-2px);
+  }
+  #timer-start-btn:focus-visible {
+    outline: 2px solid var(--gold);
+    outline-offset: 2px;
+  }
+  #timer-start-btn.timer-running {
+    background: rgba(90,168,140,.24);
+    border-color: #357a63;
+    color: #a7ddc7;
+    cursor: default;
+  }
+  #timer-start-btn.timer-running:hover {
+    background: rgba(90,168,140,.24);
+    transform: none;
+  }
+  #timer-start-btn:disabled {
+    opacity: .9;
+    cursor: not-allowed;
+  }
+  #timer-display {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Playfair Display', serif;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--gold);
+    background: var(--base-panel);
+    border: 1.5px solid var(--border);
+    border-radius: 999px;
+    padding: 12px 16px;
+    min-width: 3.6em;
+    letter-spacing: .02em;
+    box-shadow: 0 12px 28px rgba(2,5,12,.55);
+  }
+  /* Idle state is hidden entirely rather than shown at low contrast --
+     before Start Reading is pressed there is no elapsed time worth
+     showing, and hiding it keeps the floating widget a single tidy
+     round button instead of two overlapping shapes. The instant
+     startReadingTimer() runs in script.html it removes this class and
+     the live mm:ss badge appears at full "--gold" contrast next to
+     the button. */
+  #timer-display.timer-idle { display: none; }
+  .timer-pulse-dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: #e2543f;
+    margin-right: 2px;
+    animation: timerPulse 1.1s ease-in-out infinite;
+  }
+  @keyframes timerPulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: .35; transform: scale(.72); }
+  }
+
+  /* ---------- Prosody / Expression quick-note chips ---------- */
+  /* Prosody and expression genuinely cannot be scored live while a
+     teacher is also busy tagging individual reading miscues in real
+     time -- so instead of a 1-4 rubric widget, this is a bank of
+     pre-written, click-to-insert observations (grouped into Strengths
+     and Growth Areas, mirroring the "Assessor Observations & Next
+     Steps" section of a standard ORF report) that simply insert their
+     sentence into the Session Notes box below. Clicking an
+     already-inserted remark a second time removes just that line
+     again, so the box never accumulates duplicates. There is no
+     numeric score attached to these -- the value they add is entirely
+     in the qualitative text they drop into Session Notes. */
+  .prosody-quicknotes-wrap { margin: 14px 0 18px; }
+  .prosody-quicknotes-wrap .prosody-group-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: 'Playfair Display', serif;
+    font-size: .74rem;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    color: var(--gold-deep);
+    margin: 10px 0 7px;
+  }
+  .prosody-group-label:first-child { margin-top: 0; }
+  .prosody-chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+  }
+  .prosody-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-family: 'Noto Serif', serif;
+    font-size: .82rem;
+    line-height: 1.3;
+    color: var(--ink);
+    background: #0a1426;
+    border: 1.5px solid var(--border);
+    border-radius: 999px;
+    padding: 6px 12px;
+    cursor: pointer;
+    text-align: left;
+    transition: background-color .15s ease, border-color .15s ease, color .15s ease;
+  }
+  .prosody-chip:hover {
+    border-color: var(--gold-deep);
+    background: rgba(217,164,65,.10);
+  }
+  .prosody-chip.prosody-chip-positive.active {
+    background: rgba(90,168,140,.22);
+    border-color: #357a63;
+    color: #a7ddc7;
+  }
+  .prosody-chip.prosody-chip-growth.active {
+    background: rgba(217,164,65,.24);
+    border-color: var(--gold-deep);
+    color: #f0d79a;
+  }
+
+  /* ---------- Result modal: 3-up stat grid (adds WCPM alongside
+     Words Read / Miscues Tagged) and the self-correction credit line
+     shown under the miscue-breakdown tally chips. ---------- */
+  .result-stats-grid.result-stats-grid-3 {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+  .result-selfcorrect-line {
+    text-align: left;
+    font-size: .82rem;
+    color: #a7ddc7;
+    background: rgba(90,168,140,.12);
+    border: 1px solid #357a63;
+    border-radius: 8px;
+    padding: 7px 11px;
+    margin: 0 0 12px;
+  }
+  .result-selfcorrect-line.hidden { display: none; }
+
+  /* ---------- Info badges (Reading Fluency Band + WCPM Tier) ---------- */
+  /* One reusable "big-number" card component, in two color variants,
+     for the two "interpretation" badges shown after a session is
+     saved:
+       - .info-badge-fluency (gold): the Reading Fluency Band
+         (CEFR-inspired) -- see computeReadingFluencyBand_ in Code.gs.
+         Deliberately NOT labeled "CEFR" alone: real CEFR covers
+         reading, writing, listening, and speaking, usually with a
+         comprehension check, while this reflects oral reading speed
+         and accuracy only.
+       - .info-badge-wcpm (teal): the WCPM Tier, a Thai EFL-adapted
+         working benchmark -- see computeWcpmTier_ / WCPM_GRADE_BANDS
+         in Code.gs. Built from published EFL/ESL reading-fluency gap
+         research, not native-speaker norms and not an officially
+         validated Thai-specific study.
+     Mirrors the same big-number/small-label hierarchy as
+     .result-stat / .result-stat-value above: the actual band/tier
+     value (.info-badge-value) is the large, bold, high-contrast
+     element the eye lands on first; the "Reading Fluency Band" /
+     "WCPM Tier" line (.info-badge-label) sits above it small,
+     lighter-weight and uppercase; the short inline caveat tag next
+     to the value (.info-badge-tag, e.g. "reading-only est.") and the
+     full explanation line underneath (.info-badge-caption) both stay
+     small and quiet, secondary to the value. Label, value, and tag
+     are all rendered in the same proven-readable dark ink color used
+     by the previous flat badge text, so this restyle only changes
+     size/weight hierarchy -- never contrast -- against the gold/
+     teal gradients below. Together this keeps neither band/tier ever
+     mistaken for a certified rating, while making the actual
+     level/tier legible at a glance across a room. */
+  .info-badge-wrap {
+    text-align: left;
+    margin: 0 0 16px;
+  }
+  .info-badge {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    border-radius: 14px;
+    padding: 10px 16px 12px;
+  }
+  .info-badge-label {
+    font-family: 'Playfair Display', serif;
+    font-size: .68rem;
+    font-weight: 500;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    color: #0a1424;
+    margin-bottom: 3px;
+  }
+  .info-badge-value-row {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    column-gap: 10px;
+    row-gap: 2px;
+  }
+  .info-badge-value {
+    font-family: 'Playfair Display', serif;
+    font-size: 2.15rem;
+    font-weight: 800;
+    letter-spacing: .01em;
+    line-height: 1;
+    color: #0a1424;
+  }
+  .info-badge-tag {
+    font-family: 'Noto Serif', serif;
+    font-size: .74rem;
+    font-weight: 400;
+    color: #0a1424;
+  }
+  .info-badge-fluency {
+    background: linear-gradient(135deg, var(--gold) 0%, #b8862b 100%);
+  }
+  .info-badge-wcpm {
+    background: linear-gradient(135deg, #5aa88c 0%, #2f6a53 100%);
+  }
+  .info-badge-caption {
+    display: block;
+    color: var(--ink-soft);
+    font-size: .74rem;
+    margin-top: 5px;
+  }
+
+  /* ---------- Prosody / Expression rating step ---------- */
+  /* Appears once, inside the Result Summary modal, right after
+     Finish & Save -- four quick 1-4 sliders the teacher fills in from
+     memory of what they just heard (Expression & Volume, Phrasing &
+     Syntax, Smoothness & Pausing, Punctuation Adherence), matching the
+     NAEP-style scale on a standard ORF report. This is a deliberate,
+     short POST-reading step, not a live rating -- prosody cannot be
+     judged accurately while also tagging word-by-word miscues in real
+     time. The Overall Level shown here is simply these four averaged
+     and rounded. */
+  .prosody-rating-wrap {
+    text-align: left;
+    margin: 0 0 18px;
+    background: #0a1426;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+  }
+  .prosody-rating-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .prosody-rating-title {
+    font-family: 'Playfair Display', serif;
+    font-size: .8rem;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--gold-deep);
+  }
+  .prosody-rating-overall {
+    font-family: 'Playfair Display', serif;
+    font-size: .92rem;
+    font-weight: 700;
+    color: var(--gold);
+  }
+  .prosody-rating-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .prosody-rating-row label {
+    flex: 0 0 150px;
+    font-size: .82rem;
+    color: var(--ink);
+  }
+  .prosody-rating-row input[type="range"] {
+    flex: 1;
+    accent-color: var(--gold);
+    height: 4px;
+  }
+  .prosody-rating-row .prosody-rating-value {
+    flex: 0 0 34px;
+    text-align: right;
+    font-size: .82rem;
+    font-weight: 700;
+    color: var(--gold);
+  }
+  .prosody-rating-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 4px;
+    flex-wrap: wrap;
+  }
+  #prosody-save-btn {
+    font-family: 'Noto Serif', serif;
+    font-size: .85rem;
+    color: var(--ink);
+    background: #172a47;
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    padding: 7px 14px;
+    cursor: pointer;
+    transition: background-color .15s ease, border-color .15s ease;
+  }
+  #prosody-save-btn:hover {
+    background: rgba(217,164,65,.14);
+    border-color: var(--gold-deep);
+  }
+  #prosody-save-btn:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+  }
+  .prosody-rating-status {
+    font-size: .8rem;
+    color: var(--ink-soft);
+    min-height: 1.1em;
+  }
+  .prosody-rating-status.prosody-status-ok { color: #a7ddc7; }
+  .prosody-rating-status.prosody-status-fail { color: #f5a89c; }
+
+  /* ======================================================================
+     SOUTHWEST ASIA EDITION -- additions on top of the proven base theme
+     (everything above this banner is the original, working component
+     set, recolored from forest/copper to a Mesopotamian lapis-and-gold
+     palette so this app is never mistaken for the Social Studies tool).
+     ====================================================================== */
+
+  /* ---------- Reading-passage picker (entry screen) ---------- */
+  .passage-select-meta {
+    text-align: left;
+    font-size: .8rem;
+    color: var(--ink-soft);
+    line-height: 1.45;
+    margin: -6px 0 16px;
+    min-height: 1.3em;
+  }
+  .passage-select-meta b { color: var(--gold); font-weight: 600; }
+
+  /* ---------- Sound-focus tip: per-category word rows ---------- */
+  .sound-tip-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin: 8px 0;
+  }
+  .sound-tip-row-label {
+    flex: 0 0 74px;
+    font-family: 'Playfair Display', serif;
+    font-size: .76rem;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    padding-top: 3px;
+  }
+  .sound-tip-row-label.cat-lr { color: var(--gold); }
+  .sound-tip-row-label.cat-wv { color: #8ec5ff; }
+  .sound-tip-row-label.cat-s { color: #8fd9bd; }
+  .sound-tip-row-label.cat-ed { color: #ff9f8c; }
+  .sound-tip-words {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    flex: 1;
+  }
+  .sound-word-chip {
+    font-family: 'Noto Serif', serif;
+    font-size: .8rem;
+    color: var(--ink);
+    background: #0a1426;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 2px 10px;
+    line-height: 1.5;
+  }
+  .sound-word-chip.cat-lr { border-color: rgba(217,164,65,.55); }
+  .sound-word-chip.cat-wv { border-color: rgba(142,197,255,.55); }
+  .sound-word-chip.cat-s { border-color: rgba(143,217,189,.55); }
+  .sound-word-chip.cat-ed { border-color: rgba(255,159,140,.55); }
+  .sound-tip-hint {
+    color: var(--ink-soft);
+    font-size: .8rem;
+    line-height: 1.5;
+    margin: 10px 0 0;
+  }
+  .sound-tip-hint b { color: var(--gold); }
+
+  /* ---------- Sound-focus highlighting inside the passage ---------- */
+  /* Toggled by the "Sound highlights" toolbar button (class
+     show-focus on #passage). Uses an inset box-shadow underline so it
+     never fights with the wavy text-decoration used by tagged words.
+     data-focus holds ONE primary category per word, chosen in
+     script.html in the order -ed > W/V > L/R > final-S. */
+  #passage.show-focus .word-token[data-focus="ed"] { box-shadow: inset 0 -3px 0 rgba(255,159,140,.85); }
+  #passage.show-focus .word-token[data-focus="wv"] { box-shadow: inset 0 -3px 0 rgba(142,197,255,.85); }
+  #passage.show-focus .word-token[data-focus="lr"] { box-shadow: inset 0 -3px 0 rgba(217,164,65,.9); }
+  #passage.show-focus .word-token[data-focus="s"] { box-shadow: inset 0 -3px 0 rgba(143,217,189,.85); }
+
+  .focus-legend {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin: 4px 0 0;
+    font-size: .76rem;
+    color: var(--ink-soft);
+  }
+  .focus-legend-item { display: inline-flex; align-items: center; gap: 5px; }
+  .focus-dot {
+    display: inline-block;
+    width: 18px; height: 4px;
+    border-radius: 2px;
+  }
+  .focus-dot.cat-lr { background: rgba(217,164,65,.95); }
+  .focus-dot.cat-wv { background: rgba(142,197,255,.95); }
+  .focus-dot.cat-s { background: rgba(143,217,189,.95); }
+  .focus-dot.cat-ed { background: rgba(255,159,140,.95); }
+
+  .sound-toggle-btn.active {
+    background: rgba(217,164,65,.18);
+    border-color: var(--gold-deep);
+    color: #f3dc9f;
+  }
+
+  /* ---------- Passage title strip above the passage ---------- */
+  .passage-meta-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 14px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .passage-meta-title {
+    font-family: 'Playfair Display', serif;
+    font-size: 1.12rem;
+    color: var(--gold);
+    margin: 0;
+    letter-spacing: .02em;
+  }
+  .passage-meta-count {
+    font-size: .76rem;
+    color: var(--ink-soft);
+    background: #0a1426;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 2px 10px;
+  }
+
+  /* ---------- After-reading comprehension panel ---------- */
+  .afterread-title {
+    font-family: 'Playfair Display', serif;
+    font-size: .8rem;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    color: var(--gold-deep);
+    margin: 0 0 8px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .afterread-list {
+    margin: 0 0 14px;
+    padding-left: 1.25rem;
+    color: var(--ink);
+    font-size: .92rem;
+    line-height: 1.65;
+  }
+  .afterread-terms {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+  }
+  .term-chip {
+    font-family: 'Noto Serif', serif;
+    font-size: .82rem;
+    color: #f3dc9f;
+    background: rgba(217,164,65,.14);
+    border: 1px solid rgba(217,164,65,.45);
+    border-radius: 999px;
+    padding: 3px 12px;
+  }
+
+  /* ---------- Rubric legend (shared by all three rating blocks) ---------- */
+  .rubric-legend {
+    font-size: .74rem;
+    color: var(--ink-soft);
+    margin: 0 0 12px;
+    line-height: 1.45;
+  }
+  .rubric-help {
+    font-size: .76rem;
+    color: var(--ink-soft);
+    margin: 0 0 10px;
+    line-height: 1.45;
+  }
+
+  /* ---------- Sound-focus + comprehension rating blocks ---------- */
+  /* These two blocks reuse the .prosody-rating-* layout classes from
+     above for their rows/headers, and only need their own button ids
+     styled here (the original rules are keyed to #prosody-save-btn). */
+  #sound-save-btn,
+  #comp-save-btn {
+    font-family: 'Noto Serif', serif;
+    font-size: .85rem;
+    color: var(--ink);
+    background: #172a47;
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    padding: 7px 14px;
+    cursor: pointer;
+    transition: background-color .15s ease, border-color .15s ease;
+  }
+  #sound-save-btn:hover,
+  #comp-save-btn:hover {
+    background: rgba(217,164,65,.14);
+    border-color: var(--gold-deep);
+  }
+  #sound-save-btn:disabled,
+  #comp-save-btn:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+  }
+  .rating-status-line {
+    font-size: .8rem;
+    color: var(--ink-soft);
+    min-height: 1.1em;
+  }
+  .rating-status-line.rating-status-ok { color: #a7ddc7; }
+  .rating-status-line.rating-status-fail { color: #f5a89c; }
+
+  /* ---------- Leaderboard: passage tag under the section ---------- */
+  .leaderboard-passage-tag {
+    display: inline-block;
+    font-size: .74rem;
+    color: #f3dc9f;
+    background: rgba(217,164,65,.12);
+    border: 1px solid rgba(217,164,65,.4);
+    border-radius: 999px;
+    padding: 1px 9px;
+    white-space: nowrap;
+  }
+
+  /* ---------- Small-screen refinements (phones / narrow tablets) ---------- */
+  @media (max-width: 560px) {
+    .login-card { padding: 28px 20px 24px; }
+    .result-card { padding: 28px 18px 22px; }
+    .leaderboard-card { padding: 20px 14px 18px; }
+    #leaderboard-table { font-size: .78rem; }
+    #leaderboard-table thead th,
+    #leaderboard-table tbody td { padding: 7px 5px; }
+    .prosody-rating-row { flex-wrap: wrap; row-gap: 4px; }
+    .prosody-rating-row label { flex: 1 1 100%; }
+    .prosody-rating-row input[type="range"] { flex: 1 1 70%; }
+    .sound-tip-row { flex-direction: column; gap: 4px; }
+    .sound-tip-row-label { flex: none; padding-top: 0; }
+    #timer-fab-wrap { right: 12px; bottom: 12px; }
+    #timer-start-btn { padding: 11px 16px; font-size: .86rem; }
+    .result-stats-grid.result-stats-grid-3 { gap: 8px; }
+    .info-badge-value { font-size: 1.8rem; }
+  }
+</style>

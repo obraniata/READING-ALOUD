@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+ <head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reading Aloud Assessment</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script src="https://cdn.jsdelivr.net/npm/lucide@0.263.0/dist/umd/lucide.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=Noto+Serif:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+  <?!= include('stylesheet'); ?>
+  <?!= include('stylesheet_addons'); ?>
+ </head>
+ <body>
+
+  <!-- ================= LOADING / TEACHER PIN SCREEN ================= -->
+  <div id="boot-overlay" style="position:fixed;inset:0;z-index:140;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at top,#1b3a66 0%,#0f1f3a 55%,#070d19 100%);padding:20px;">
+    <div class="login-card">
+      <div class="crest"><i data-lucide="book-open" style="width:26px;height:26px;color:#f5f1e6;"></i></div>
+      <h1 id="boot-title">Reading Aloud Assessment</h1>
+      <p id="boot-msg" class="boot-msg">Loading&hellip;</p>
+      <form id="pin-form" class="hidden" autocomplete="off">
+        <div class="field-group">
+          <label for="pin-input">Teacher PIN</label>
+          <input type="password" id="pin-input" placeholder="Enter your PIN">
+        </div>
+        <button type="submit" id="login-submit"><i data-lucide="key" style="width:18px;height:18px;"></i><span>Open teacher page</span></button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ================= TEACHER ENTRY SCREEN ================= -->
+  <div id="login-overlay">
+    <div class="login-card">
+      <div class="crest"><i data-lucide="book-open" style="width:26px;height:26px;color:#f5f1e6;"></i></div>
+      <h1 id="login-title">Reading Aloud Assessment</h1>
+      <p class="subtitle" id="login-subtitle">Reading Skills Check</p>
+      <form id="login-form" autocomplete="off">
+        <div class="field-group">
+          <label for="student-id">Student ID No.</label>
+          <input type="text" id="student-id" placeholder="e.g. 12345" inputmode="numeric">
+        </div>
+        <div class="field-group">
+          <label for="student-name">Name of Student Reading</label>
+          <input type="text" id="student-name" placeholder="e.g. Somchai Jaidee">
+        </div>
+        <div class="field-group">
+          <label for="student-section">Section</label>
+          <select id="student-section"><option value="" disabled selected>Select the student's section</option></select>
+        </div>
+        <div class="field-group">
+          <label for="passage-select">Reading Passage</label>
+          <select id="passage-select"><option value="" disabled selected>Choose a reading passage</option></select>
+        </div>
+        <p id="passage-select-meta" class="passage-select-meta"></p>
+        <div id="login-error"></div>
+        <button type="submit" id="login-submit-entry" style="width:100%;font-family:'Playfair Display',serif;letter-spacing:.03em;font-size:.95rem;color:#0a1424;background:linear-gradient(135deg,var(--gold) 0%,#7a5614 100%);border:none;border-radius:10px;padding:13px 16px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 6px 16px rgba(217,164,65,.28);">
+          <i data-lucide="log-in" style="width:18px;height:18px;"></i>
+          <span>Begin Reading Session</span>
+        </button>
+      </form>
+      <div class="login-extra-links">
+        <button type="button" id="leaderboard-btn-login" class="leaderboard-link-btn">
+          <i data-lucide="trophy" style="width:15px;height:15px;"></i><span>Leaderboard</span>
+        </button>
+        <button type="button" id="manage-btn-login" class="leaderboard-link-btn">
+          <i data-lucide="settings" style="width:15px;height:15px;"></i><span>Manage</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= READING APP ================= -->
+  <div id="app-content" class="hidden">
+
+   <div id="timer-fab-wrap">
+    <button type="button" id="timer-start-btn" aria-label="Start the reading timer">
+     <i data-lucide="timer" style="width:17px;height:17px;"></i>
+     <span id="timer-start-label">Start Reading</span>
+    </button>
+    <span id="timer-display" class="timer-idle">00:00</span>
+   </div>
+
+   <div class="max-w-4xl mx-auto px-5 py-8">
+
+    <div id="student-badge">
+      <i data-lucide="user-circle" style="width:16px;height:16px;color:#c9d3e8;"></i>
+      <span><b id="badge-id"></b> &middot; <span id="badge-name"></span> &middot; <span id="badge-section"></span> &middot; <span id="badge-passage"></span></span>
+      <button type="button" id="logout-btn">Switch student</button>
+    </div>
+
+    <header class="canva-header rounded-2xl px-6 py-4 mb-4 shadow-md text-center">
+     <h1 id="header-passage-title" class="canva-text" style="font-family:'Playfair Display',serif;letter-spacing:.02em;font-size:1.6rem;"></h1>
+     <p id="header-passage-subtitle" class="canva-text mt-2" style="font-size:.95rem;opacity:.9;"></p>
+    </header>
+
+    <details class="canva-panel collapse-panel rounded-xl px-5 py-3 mb-3 shadow-sm">
+     <summary><i data-lucide="info" style="width:16px;height:16px;"></i><span>How to use this tool</span></summary>
+     <p class="canva-text mt-3 mb-3" style="font-size:.95rem;">The passage is shown exactly as it should be read. As the student reads aloud, click any word where you notice a reading issue, then choose the type of issue from the menu. Listen as the student reads aloud and click a word the moment you notice something (a mispronunciation, a skipped or added word, a repeat, a missed pause, wrong stress, or a hesitation), then pick the matching category. Tagging is instant, so you can keep pace with a fast reader. Press <b>Start Reading</b> (bottom-right) when the student begins so reading speed (WCPM) can be calculated. Add overall observations in Session Notes whenever convenient. When the student finishes, press Finish &amp; Save, then complete the optional rubrics in the result window.</p>
+     <div class="flex flex-wrap gap-2">
+      <span class="canva-tag px-3 py-1 rounded-full">Untagged word</span>
+      <span class="canva-tag px-3 py-1 rounded-full" style="background:rgba(217,164,65,.18);">Tagged, still live</span>
+      <span class="canva-tag px-3 py-1 rounded-full" style="background:rgba(217,164,65,.24);color:#f0d79a;">Tagged &amp; saved</span>
+     </div>
+    </details>
+
+    <details id="sound-tip" class="sound-tip collapse-panel rounded-lg px-4 py-3 mb-4">
+     <summary><i data-lucide="ear" style="width:15px;height:15px;"></i><span id="sound-tip-heading">Listen especially for these words and sounds</span></summary>
+     <div id="sound-tip-rows" class="mt-3"></div>
+     <p id="sound-tip-hint" class="sound-tip-hint"><b>L</b> = tongue tip touches the ridge behind the upper teeth; <b>R</b> = tongue curls back and touches nothing. <b>W</b> = rounded lips, no teeth; <b>V</b> = upper teeth touch the lower lip. <b>Final S/ES</b> must be heard (rivers, canals, cities). <b>-ED</b> is said /t/ after unvoiced sounds (worked), /d/ after voiced sounds (ruled), and /id/ after T or D (created). Word lists are found automatically from spelling, so a few may be off. Tag these under Mispronunciation or Intonation/Stress whenever you catch one.</p>
+     <div id="focus-legend" class="focus-legend"></div>
+    </details>
+
+    <section class="canva-panel rounded-xl px-5 py-4 mb-5 shadow-sm flex flex-wrap items-center justify-between gap-3">
+     <div class="flex items-center gap-2 text-[#c9d3e8]"><i data-lucide="tag" style="width:20px;height:20px;"></i> <span class="canva-text">Words tagged:</span> <span id="tag-count" class="font-bold" style="font-family:'Playfair Display',serif;">0</span></div>
+     <div class="flex flex-wrap gap-2">
+      <button type="button" id="sound-toggle-btn" class="canva-button-outline sound-toggle-btn active px-4 py-2 rounded-lg shadow-sm flex items-center gap-2" aria-pressed="true">
+       <i data-lucide="ear" style="width:16px;height:16px;"></i><span id="sound-toggle-label">Highlights: On</span>
+      </button>
+      <button type="button" id="leaderboard-btn-quiz" class="canva-button-outline px-4 py-2 rounded-lg shadow-sm flex items-center gap-2">
+       <i data-lucide="trophy" style="width:16px;height:16px;"></i><span>Leaderboard</span>
+      </button>
+      <button type="button" id="submit-answer-btn" class="canva-button px-5 py-2 rounded-lg shadow-sm flex items-center gap-2"><i data-lucide="send" style="width:18px;height:18px;"></i><span>Finish &amp; Save</span></button>
+     </div>
+    </section>
+
+    <section class="canva-panel rounded-xl px-5 py-4 mb-5 shadow-sm session-notes-wrap">
+     <label for="session-notes">Session Notes (overall observations for this reading, optional)</label>
+     <div class="prosody-quicknotes-wrap">
+      <div class="prosody-group-label"><i data-lucide="sparkles" style="width:13px;height:13px;"></i><span>Strengths (click to add to notes)</span></div>
+      <div class="prosody-chip-row">
+       <button type="button" class="prosody-chip prosody-chip-positive" data-note="Read with good inflection that matched the tone of the passage.">Good expressive inflection</button>
+       <button type="button" class="prosody-chip prosody-chip-positive" data-note="Grouped words into natural 3-4 word phrase units rather than reading word-by-word.">Natural phrasing</button>
+       <button type="button" class="prosody-chip prosody-chip-positive" data-note="Maintained a smooth, well-paced reading rhythm throughout the passage.">Smooth pacing</button>
+       <button type="button" class="prosody-chip prosody-chip-positive" data-note="Consistently paused at periods and commas, matching the passage's punctuation.">Consistent punctuation pauses</button>
+       <button type="button" class="prosody-chip prosody-chip-positive" data-note="Noticed and corrected mistakes independently without breaking reading flow.">Strong self-monitoring</button>
+       <button type="button" class="prosody-chip prosody-chip-positive" data-note="Read with confident volume and steady automaticity from start to finish.">Confident, automatic reading</button>
+       <button type="button" class="prosody-chip prosody-chip-positive sound-chip" data-note="Produced clear, distinct L and R sounds.">Clear L / R sounds</button>
+       <button type="button" class="prosody-chip prosody-chip-positive sound-chip" data-note="Kept W and V distinct, with rounded lips for W and teeth on lip for V.">Clear W / V sounds</button>
+       <button type="button" class="prosody-chip prosody-chip-positive sound-chip" data-note="Pronounced final -S/-ES endings clearly on plural nouns and verbs.">Final S / ES heard clearly</button>
+       <button type="button" class="prosody-chip prosody-chip-positive sound-chip" data-note="Used the correct -ED endings (/t/, /d/, /id/) on past-tense verbs.">Accurate -ED endings</button>
+      </div>
+      <div class="prosody-group-label"><i data-lucide="target" style="width:13px;height:13px;"></i><span>Growth areas (click to add to notes)</span></div>
+      <div class="prosody-chip-row">
+       <button type="button" class="prosody-chip prosody-chip-growth" data-note="Read in a flat, word-by-word tone with little expression or inflection.">Flat / word-by-word delivery</button>
+       <button type="button" class="prosody-chip prosody-chip-growth" data-note="Frequently ran sentences together without pausing at periods or commas.">Needs work on punctuation pauses</button>
+       <button type="button" class="prosody-chip prosody-chip-growth" data-note="Paused often to sound out words, breaking up the natural flow of the passage.">Choppy pacing / frequent hesitation</button>
+       <button type="button" class="prosody-chip prosody-chip-growth" data-note="Substituted or guessed at multi-syllable words based on context rather than fully decoding them.">Guesses at complex vocabulary</button>
+       <button type="button" class="prosody-chip prosody-chip-growth" data-note="Read very quietly or hesitantly, suggesting low confidence with this passage.">Low reading confidence</button>
+       <button type="button" class="prosody-chip prosody-chip-growth sound-chip" data-note="Would benefit from targeted practice on the L/R, final-S, W/V, and -ED sounds highlighted in this passage.">Needs L/R, S, W/V, -ED practice</button>
+       <button type="button" class="prosody-chip prosody-chip-growth sound-chip" data-note="Mixed up L and R in several words.">Confuses L and R</button>
+       <button type="button" class="prosody-chip prosody-chip-growth sound-chip" data-note="Replaced V with W (or W with V) in several words.">Swaps W and V</button>
+       <button type="button" class="prosody-chip prosody-chip-growth sound-chip" data-note="Dropped the final -S/-ES on plural nouns and verbs, so plurals sounded singular.">Drops final S / ES</button>
+       <button type="button" class="prosody-chip prosody-chip-growth sound-chip" data-note="Dropped or mis-sounded the -ED endings on past-tense verbs.">Drops or misplaces -ED endings</button>
+      </div>
+     </div>
+     <textarea id="session-notes" rows="3" placeholder="Overall observations for this reading..."></textarea>
+    </section>
+
+    <main class="canva-section rounded-2xl px-6 sm:px-9 py-8 shadow-md">
+     <div class="passage-meta-line">
+      <h2 id="passage-meta-title" class="passage-meta-title"></h2>
+      <span id="passage-meta-count" class="passage-meta-count"></span>
+     </div>
+     <div id="passage" class="show-focus leading-[2.4] text-[#f2ece0]" style="font-size:1.05rem;"></div>
+    </main>
+
+    <section id="afterread-section" class="canva-panel rounded-2xl px-6 py-5 mt-6 shadow-md">
+     <div class="afterread-title"><i data-lucide="message-circle" style="width:15px;height:15px;"></i><span>After reading: comprehension check</span></div>
+     <div id="afterread-questions-wrap">
+      <p class="rubric-help">Ask the student these questions aloud, then score the Comprehension rubric in the result window.</p>
+      <ol id="afterread-questions" class="afterread-list"></ol>
+     </div>
+     <div id="afterread-terms-wrap">
+      <div class="afterread-title"><i data-lucide="key" style="width:15px;height:15px;"></i><span>Key terms to listen for</span></div>
+      <div id="afterread-terms" class="afterread-terms"></div>
+     </div>
+    </section>
+
+    <section id="results-section" class="canva-panel rounded-2xl px-6 py-6 mt-6 shadow-md hidden">
+     <h2 class="canva-text mb-1" style="font-family:'Playfair Display',serif;">Session Summary</h2>
+     <p id="score-line" class="text-[#c9d3e8] mb-4" style="font-size:1.1rem;"></p>
+     <div class="canva-text mb-2 font-semibold">Tagged Miscues</div>
+     <ul id="feedback-list" class="space-y-2"></ul>
+    </section>
+    <template id="feedback-template">
+     <li class="fade-in flex items-start gap-3 rounded-lg px-3 py-2" style="background:rgba(217,164,65,.10);"><span class="feedback-icon mt-1 shrink-0"></span> <span class="text-[#f2ece0]" style="font-size:.98rem;"> <span class="feedback-cat font-semibold"></span> <span class="feedback-body"></span> </span></li>
+    </template>
+   </div>
+  </div>
+
+  <!-- Category menu shown when a word is clicked -->
+  <div id="cat-popover" class="hidden" role="menu" aria-label="Choose reading-skill category">
+    <button type="button" data-cat="Mispronunciation" role="menuitem"><i data-lucide="mic-off" style="width:16px;height:16px;color:#c9d3e8;"></i><span>Mispronunciation</span></button>
+    <button type="button" data-cat="Omission" role="menuitem"><i data-lucide="minus-circle" style="width:16px;height:16px;color:#c9d3e8;"></i><span>Omission</span></button>
+    <button type="button" data-cat="Insertion" role="menuitem"><i data-lucide="plus-circle" style="width:16px;height:16px;color:#c9d3e8;"></i><span>Insertion</span></button>
+    <button type="button" data-cat="Substitution" role="menuitem"><i data-lucide="shuffle" style="width:16px;height:16px;color:#c9d3e8;"></i><span>Substitution</span></button>
+    <button type="button" data-cat="Repetition" role="menuitem"><i data-lucide="repeat" style="width:16px;height:16px;color:#c9d3e8;"></i><span>Repetition</span></button>
+    <button type="button" data-cat="Self-Correction" role="menuitem"><i data-lucide="rotate-ccw" style="width:16px;height:16px;color:#c9d3e8;"></i><span>Self-Correction</span></button>
+    <button type="button" data-cat="Punctuation/Pause" role="menuitem"><i data-lucide="pause-circle" style="width:16px;height:16px;color:#c9d3e8;"></i><span>Punctuation/Pause</span></button>
+    <button type="button" data-cat="Intonation/Stress" role="menuitem"><i data-lucide="activity" style="width:16px;height:16px;color:#c9d3e8;"></i><span>Intonation/Stress</span></button>
+    <button type="button" data-cat="Hesitation" role="menuitem"><i data-lucide="clock" style="width:16px;height:16px;color:#c9d3e8;"></i><span>Hesitation</span></button>
+    <button type="button" data-cat="__remove" role="menuitem"><i data-lucide="x" style="width:16px;height:16px;color:#e2543f;"></i><span>Remove tag</span></button>
+  </div>
+
+  <!-- ================= LEADERBOARD MODAL (teacher view, always available) ================= -->
+  <div id="leaderboard-overlay" class="hidden">
+    <div class="leaderboard-card">
+      <div class="leaderboard-header">
+        <h2><i data-lucide="trophy" style="width:20px;height:20px;"></i><span>Leaderboard</span></h2>
+        <button type="button" id="leaderboard-close-btn" aria-label="Close leaderboard"><i data-lucide="x" style="width:18px;height:18px;"></i></button>
+      </div>
+      <p class="leaderboard-subtitle">Top reading-accuracy scores across all your sections and passages. This teacher view is always on, even when students cannot see the leaderboard. Use the printer icon to print or save any session as a PDF.</p>
+      <div id="leaderboard-body">
+        <div id="leaderboard-loading">Loading leaderboard&hellip;</div>
+        <table id="leaderboard-table" class="hidden">
+          <thead><tr><th>Rank</th><th>Name</th><th>Section</th><th>Passage</th><th>Accuracy</th><th>Speed</th><th>Print</th></tr></thead>
+          <tbody id="leaderboard-tbody"></tbody>
+        </table>
+        <div id="leaderboard-empty" class="hidden">No sessions have been recorded yet.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= RESULT SUMMARY MODAL ================= -->
+  <div id="result-overlay" class="hidden">
+    <div class="result-card">
+      <button type="button" id="result-close-btn" class="result-close-btn" aria-label="Close result summary"><i data-lucide="x" style="width:18px;height:18px;"></i></button>
+      <div class="result-icon-wrap"><i data-lucide="book-open" style="width:28px;height:28px;color:#0a1424;"></i></div>
+      <h2 id="result-title" class="result-title">Session Saved!</h2>
+      <p id="result-student-line" class="result-student-line"></p>
+
+      <div class="result-ring-wrap">
+        <svg id="result-ring-svg" viewBox="0 0 120 120" class="result-ring-svg">
+          <circle cx="60" cy="60" r="52" class="result-ring-track"></circle>
+          <circle cx="60" cy="60" r="52" id="result-ring-fill" class="result-ring-fill"></circle>
+        </svg>
+        <div class="result-ring-label"><span id="result-score-percent">0%</span><span class="result-ring-caption">accuracy</span></div>
+      </div>
+      <p id="result-message" class="result-message"></p>
+
+      <div class="result-stats-grid result-stats-grid-3">
+        <div class="result-stat"><span class="result-stat-value" id="result-located-value">0/0</span><span class="result-stat-label">Words Read</span></div>
+        <div class="result-stat"><span class="result-stat-value" id="result-correct-value">0/0</span><span class="result-stat-label">True Errors</span></div>
+        <div class="result-stat"><span class="result-stat-value" id="result-wcpm-value">--</span><span class="result-stat-label">WCPM</span></div>
+      </div>
+
+      <p id="result-selfcorrect-line" class="result-selfcorrect-line hidden"></p>
+      <div style="text-align:left;margin:0 0 16px;">
+        <div style="font-family:'Playfair Display',serif;color:#c9d3e8;font-size:.85rem;letter-spacing:.03em;text-transform:uppercase;margin-bottom:8px;">Miscue Breakdown</div>
+        <p style="color:var(--ink-soft);font-size:.78rem;margin:0 0 8px;">Mispronunciation, Substitution, Omission &amp; Hesitation count toward Accuracy/WCPM. The rest are tracked only.</p>
+        <ul id="result-tally-list" style="list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:8px;"></ul>
+        <p id="result-tally-empty" style="color:#c9d3e8;font-size:.88rem;margin:4px 0 0;">No miscues were tagged during this session.</p>
+      </div>
+
+      <div class="info-badge-wrap">
+        <div class="info-badge info-badge-fluency">
+          <span class="info-badge-label">Reading Fluency Band</span>
+          <div class="info-badge-value-row"><span class="info-badge-value" id="result-fluency-value">--</span><span class="info-badge-tag">reading-only est.</span></div>
+        </div>
+        <span class="info-badge-caption" id="result-fluency-caption"></span>
+      </div>
+      <div class="info-badge-wrap">
+        <div class="info-badge info-badge-wcpm">
+          <span class="info-badge-label">WCPM Tier</span>
+          <div class="info-badge-value-row"><span class="info-badge-value" id="result-wcpm-tier-value">--</span><span class="info-badge-tag">EFL benchmark</span></div>
+        </div>
+        <span class="info-badge-caption" id="result-wcpm-tier-caption"></span>
+      </div>
+
+      <!-- The three optional rubrics (Prosody, Sound Focus, Comprehension) are built here by script.html -->
+      <div id="rubric-host"></div>
+
+      <p id="result-save-status" class="result-save-status">Saving your results&hellip;</p>
+      <div class="result-actions">
+        <button type="button" id="result-print-btn" class="canva-button-outline px-4 py-2 rounded-lg shadow-sm flex items-center gap-2"><i data-lucide="printer" style="width:16px;height:16px;"></i><span>Print / Save PDF</span></button>
+        <button type="button" id="result-leaderboard-btn" class="canva-button-outline px-4 py-2 rounded-lg shadow-sm flex items-center gap-2"><i data-lucide="trophy" style="width:16px;height:16px;"></i><span>View Leaderboard</span></button>
+        <button type="button" id="result-continue-btn" class="canva-button px-5 py-2 rounded-lg shadow-sm flex items-center gap-2"><i data-lucide="check" style="width:16px;height:16px;"></i><span>Continue</span></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= CONFIRM MODAL ================= -->
+  <div id="confirm-overlay" class="hidden" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-message">
+    <div class="confirm-card">
+      <div class="confirm-icon-wrap"><i data-lucide="help-circle" style="width:24px;height:24px;color:#0a1424;"></i></div>
+      <h2 id="confirm-title" class="confirm-title">Finish this reading session?</h2>
+      <p id="confirm-message" class="confirm-message"></p>
+      <div class="confirm-actions">
+        <button type="button" id="confirm-cancel-btn" class="confirm-cancel-btn px-4 py-2 rounded-lg shadow-sm flex items-center gap-2"><i data-lucide="x" style="width:15px;height:15px;"></i><span>Cancel</span></button>
+        <button type="button" id="confirm-ok-btn" class="confirm-ok-btn px-5 py-2 rounded-lg shadow-sm flex items-center gap-2"><i data-lucide="check" style="width:15px;height:15px;"></i><span id="confirm-ok-label">Finish &amp; Save</span></button>
+      </div>
+    </div>
+  </div>
+
+  <?!= include('report'); ?>
+  <?!= include('script'); ?>
+  <?!= include('manage'); ?>
+ </body>
+</html>

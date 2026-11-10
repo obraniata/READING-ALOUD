@@ -1,0 +1,895 @@
+<script>
+  // ============== STATE ==============
+  // CONFIG, PASSAGES and TIERS all come from the Google Sheet (Settings, Passages and
+  // Benchmarks tabs) through getTeacherBoot(). Nothing about any subject is hard-coded here.
+  var CONFIG = null, PASSAGES = [], TIERS = [], teacherPin = '';
+  var currentStudent = null, currentPassage = null, lastPassageId = '';
+  var lastSessionDetail = null, lastSavedRowInfo = null;
+  function $(id) { return document.getElementById(id); }
+
+  // ============== BOOT (+ optional teacher PIN) ==============
+  function boot(pin) {
+    google.script.run
+      .withSuccessHandler(onBoot)
+      .withFailureHandler(function () { setBootMessage('Could not reach the server. Please reload the page.', true); })
+      .getTeacherBoot(pin || '');
+  }
+  function setBootMessage(text, isError) {
+    var el = $('boot-msg');
+    el.textContent = text;
+    el.classList.toggle('boot-error', !!isError);
+  }
+  function onBoot(res) {
+    if (!res || !res.success) {
+      if (res && res.needPin) {
+        if (res.appTitle) $('boot-title').textContent = res.appTitle;
+        setBootMessage(res.message || 'Enter your teacher PIN to continue.', !!res.message);
+        $('pin-form').classList.remove('hidden');
+        $('pin-input').focus();
+        return;
+      }
+      setBootMessage((res && res.message) || 'Could not load the app.', true);
+      return;
+    }
+    CONFIG = res.config;
+    PASSAGES = res.passages || [];
+    TIERS = CONFIG.tiers || [];
+    $('boot-overlay').style.display = 'none';
+    applyConfig();
+  }
+  $('pin-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    teacherPin = $('pin-input').value.trim();
+    setBootMessage('Checking\u2026', false);
+    boot(teacherPin);
+  });
+
+  function applyConfig() {
+    document.title = CONFIG.appTitle;
+    $('login-title').textContent = CONFIG.appTitle;
+    $('login-subtitle').textContent = CONFIG.subject || 'Reading Skills Check';
+
+    var secSel = $('student-section'), prevSec = secSel.value;
+    secSel.innerHTML = '<option value="" disabled selected>Select the student\'s section</option>';
+    CONFIG.sections.forEach(function (sec) {
+      var o = document.createElement('option');
+      o.value = sec; o.textContent = sec;
+      secSel.appendChild(o);
+    });
+
+    var passSel = $('passage-select'), prevPass = passSel.value;
+    passSel.innerHTML = '<option value="" disabled selected>Choose a reading passage</option>';
+    PASSAGES.forEach(function (p) {
+      var o = document.createElement('option');
+      o.value = p.id;
+      o.textContent = p.title + ' (' + p.wordCount + ' words)';
+      passSel.appendChild(o);
+    });
+    if (prevSec && CONFIG.sections.indexOf(prevSec) !== -1) secSel.value = prevSec;
+    if (prevPass && getPassageById(prevPass).id === prevPass) passSel.value = prevPass;
+    updatePassageSelectMeta();
+    $('login-error').textContent = PASSAGES.length ? '' : 'No passages yet. Click Manage, then Passages, then Add passage.';
+    lucide.createIcons();
+  }
+
+  /** Reloads settings and passages from the Sheet (used after saving in the Manage screen). */
+  function reloadBoot(done) {
+    google.script.run
+      .withSuccessHandler(function (res) {
+        if (res && res.success) { CONFIG = res.config; PASSAGES = res.passages || []; TIERS = CONFIG.tiers || []; applyConfig(); }
+        if (done) done(res);
+      })
+      .withFailureHandler(function () { if (done) done(null); })
+      .getTeacherBoot(teacherPin);
+  }
+
+  function getPassageById(id) {
+    for (var i = 0; i < PASSAGES.length; i++) { if (PASSAGES[i].id === id) return PASSAGES[i]; }
+    return PASSAGES[0];
+  }
+
+  // ============== SCORING MIRRORS (the server recomputes and wins) ==============
+  var FLUENCY_BAND_LABELS = ['A1', 'A2', 'B1', 'B2', 'C1'];
+  var FLUENCY_BAND_ACCURACY_CUTOFFS = [0, 70, 85, 95, 98];
+  var FLUENCY_BAND_WCPM_CUTOFFS = [0, 30, 60, 100, 130];
+  function bandIndexForClient(value, cutoffs) {
+    var idx = 0;
+    for (var i = 0; i < cutoffs.length; i++) { if (value >= cutoffs[i]) idx = i; }
+    return idx;
+  }
+  function computeReadingFluencyBandClient(acc, wcpm) {
+    var a = bandIndexForClient(acc || 0, FLUENCY_BAND_ACCURACY_CUTOFFS);
+    if (!wcpm || wcpm <= 0) return FLUENCY_BAND_LABELS[a] + ' (reading-only est., accuracy only, not timed)';
+    return FLUENCY_BAND_LABELS[Math.min(a, bandIndexForClient(wcpm, FLUENCY_BAND_WCPM_CUTOFFS))] + ' (reading-only est.)';
+  }
+  function computeWcpmTierClient(wcpm) {
+    if (!wcpm || wcpm <= 0) return { label: 'Not Timed', note: 'This session was not timed, so a speed tier could not be determined.' };
+    var chosen = TIERS[0] || { label: 'Unavailable', note: '' };
+    TIERS.forEach(function (t) { if (wcpm >= t.min) chosen = t; });
+    return { label: chosen.label, note: chosen.note };
+  }
+
+  // ============== THE THREE OPTIONAL RUBRICS (built from one template) ==============
+  var RUBRICS = [
+    { id: 'prosody', title: 'Prosody / Expression Rating (optional)', help: '',
+      legend: '1 = Needs support \u00b7 2 = Developing \u00b7 3 = Proficient \u00b7 4 = Excellent',
+      rows: ['Expression &amp; Volume', 'Phrasing &amp; Syntax', 'Smoothness &amp; Pausing', 'Punctuation Adherence'],
+      keys: ['prosodyExpression', 'prosodyPhrasing', 'prosodySmoothness', 'prosodyPunctuation'], overallKey: 'prosodyOverallLevel', soundOnly: false },
+    { id: 'sound', title: 'Sound Focus Rubric (optional)', help: 'How clearly did the student produce the sounds Thai learners of English find hardest?',
+      legend: '1 = Often confused \u00b7 2 = Sometimes confused \u00b7 3 = Mostly clear \u00b7 4 = Consistently clear',
+      rows: ['L &amp; R Sounds', 'W &amp; V Sounds', 'Final S / ES', '-ED Endings'],
+      keys: ['soundLR', 'soundWV', 'soundFinals', 'soundEd'], overallKey: 'soundOverallLevel', soundOnly: true },
+    { id: 'comp', title: 'Comprehension Rubric (optional)', help: 'Based on the student\'s spoken answers to the after-reading questions.',
+      legend: '1 = Little understanding \u00b7 2 = Partial \u00b7 3 = Good \u00b7 4 = Thorough and accurate',
+      rows: ['Main Idea', 'Key Details', 'Key Terms &amp; Vocabulary'],
+      keys: ['compMainIdea', 'compDetails', 'compTerms'], overallKey: 'compOverallLevel', soundOnly: false }
+  ];
+
+  function rubricOverall(rb) {
+    var sum = rb.values.reduce(function (a, b) { return a + b; }, 0);
+    rb.overallEl.textContent = 'Level ' + Math.round(sum / rb.values.length) + ' / 4';
+  }
+  function setRubricStatus(rb, text, state) {
+    rb.statusEl.textContent = text;
+    rb.statusEl.classList.remove('rating-status-ok', 'rating-status-fail');
+    if (state) rb.statusEl.classList.add('rating-status-' + state);
+  }
+  function resetRubric(rb) {
+    rb.values = rb.rows.map(function () { return 3; });
+    rb.wrap.querySelectorAll('input[type=range]').forEach(function (inp) {
+      inp.value = 3;
+      inp.parentNode.querySelector('.prosody-rating-value').textContent = '3 / 4';
+    });
+    rubricOverall(rb);
+    setRubricStatus(rb, '', '');
+    rb.btn.disabled = false;
+  }
+  function resetAllRubrics() { RUBRICS.forEach(resetRubric); }
+
+  function saveRubric(rb) {
+    if (!lastSavedRowInfo || !lastSavedRowInfo.rowNumber) {
+      setRubricStatus(rb, 'Still saving your session \u2014 please try again in a moment.', 'fail');
+      return;
+    }
+    rb.btn.disabled = true;
+    setRubricStatus(rb, 'Saving rating\u2026', '');
+    google.script.run
+      .withSuccessHandler(function (res) {
+        rb.btn.disabled = false;
+        if (res && res.success) {
+          setRubricStatus(rb, 'Rating saved.', 'ok');
+          if (lastSessionDetail) {
+            rb.keys.forEach(function (k, i) { lastSessionDetail[k] = res.scores[i]; });
+            lastSessionDetail[rb.overallKey] = res.overallLevel;
+          }
+        } else {
+          setRubricStatus(rb, (res && res.message) || 'Could not save the rating \u2014 please try again.', 'fail');
+        }
+      })
+      .withFailureHandler(function () {
+        rb.btn.disabled = false;
+        setRubricStatus(rb, 'Connection hiccup \u2014 please try again.', 'fail');
+      })
+      .saveRubric(teacherPin, lastSavedRowInfo.section, lastSavedRowInfo.rowNumber, rb.id, rb.values);
+  }
+
+  function buildRubrics() {
+    var host = $('rubric-host');
+    RUBRICS.forEach(function (rb) {
+      var wrap = document.createElement('div');
+      wrap.className = 'prosody-rating-wrap';
+      var html = '<div class="prosody-rating-header"><span class="prosody-rating-title">' + rb.title +
+        '</span><span class="prosody-rating-overall" data-role="overall">Level 3 / 4</span></div>' +
+        (rb.help ? '<p class="rubric-help">' + rb.help + '</p>' : '') +
+        '<p class="rubric-legend">' + rb.legend + '</p>';
+      rb.rows.forEach(function (label, i) {
+        html += '<div class="prosody-rating-row"><label>' + label + '</label>' +
+          '<input type="range" min="1" max="4" step="1" value="3" data-idx="' + i + '">' +
+          '<span class="prosody-rating-value">3 / 4</span></div>';
+      });
+      html += '<div class="prosody-rating-actions"><button type="button" class="rubric-save-btn">Save Rating</button><span class="rating-status-line"></span></div>';
+      wrap.innerHTML = html;
+      host.appendChild(wrap);
+      rb.wrap = wrap;
+      rb.overallEl = wrap.querySelector('[data-role=overall]');
+      rb.btn = wrap.querySelector('.rubric-save-btn');
+      rb.statusEl = wrap.querySelector('.rating-status-line');
+      rb.values = rb.rows.map(function () { return 3; });
+      wrap.querySelectorAll('input[type=range]').forEach(function (inp) {
+        inp.addEventListener('input', function () {
+          rb.values[Number(inp.dataset.idx)] = Number(inp.value);
+          inp.parentNode.querySelector('.prosody-rating-value').textContent = inp.value + ' / 4';
+          rubricOverall(rb);
+        });
+      });
+      rb.btn.addEventListener('click', function () { saveRubric(rb); });
+    });
+  }
+
+  // ============== READING TIMER (drives WCPM) ==============
+  var timerStartMs = null, timerIntervalId = null;
+  function formatMmSs(total) {
+    var s = Math.max(0, Math.floor(total)), mm = Math.floor(s / 60), ss = s % 60;
+    return (mm < 10 ? '0' : '') + mm + ':' + (ss < 10 ? '0' : '') + ss;
+  }
+  function startReadingTimer() {
+    if (timerStartMs !== null) return;
+    timerStartMs = Date.now();
+    $('timer-display').classList.remove('timer-idle');
+    $('timer-display').textContent = '00:00';
+    $('timer-start-btn').classList.add('timer-running');
+    $('timer-start-btn').disabled = true;
+    $('timer-start-label').innerHTML = '<span class="timer-pulse-dot"></span>Reading\u2026';
+    lucide.createIcons();
+    timerIntervalId = setInterval(function () {
+      if (timerStartMs !== null) $('timer-display').textContent = formatMmSs((Date.now() - timerStartMs) / 1000);
+    }, 1000);
+  }
+  function stopReadingTimer() {
+    if (timerIntervalId !== null) { clearInterval(timerIntervalId); timerIntervalId = null; }
+    if (timerStartMs === null) return 0;
+    var secs = Math.round((Date.now() - timerStartMs) / 1000);
+    timerStartMs = null;
+    return secs;
+  }
+  function resetReadingTimer() {
+    if (timerIntervalId !== null) { clearInterval(timerIntervalId); timerIntervalId = null; }
+    timerStartMs = null;
+    $('timer-display').classList.add('timer-idle');
+    $('timer-display').textContent = '00:00';
+    $('timer-start-btn').classList.remove('timer-running');
+    $('timer-start-btn').disabled = false;
+    $('timer-start-label').textContent = 'Start Reading';
+  }
+  $('timer-start-btn').addEventListener('click', startReadingTimer);
+
+  // ============== SESSION-NOTES QUICK CHIPS ==============
+  var activeProsodyNotes = new Set();
+  function toggleProsodyNote(sentence, btn) {
+    var box = $('session-notes');
+    var lines = box.value.split('\n').filter(function (l) { return l.trim() !== ''; });
+    if (activeProsodyNotes.has(sentence)) {
+      activeProsodyNotes.delete(sentence);
+      box.value = lines.filter(function (l) { return l !== sentence; }).join('\n');
+      btn.classList.remove('active');
+    } else {
+      activeProsodyNotes.add(sentence);
+      lines.push(sentence);
+      box.value = lines.join('\n');
+      btn.classList.add('active');
+    }
+  }
+  document.querySelectorAll('.prosody-chip').forEach(function (btn) {
+    btn.addEventListener('click', function () { if (btn.dataset.note) toggleProsodyNote(btn.dataset.note, btn); });
+  });
+
+  // ============== ENTRY SCREEN ==============
+  var loginOverlay = $('login-overlay'), appContent = $('app-content'), loginForm = $('login-form'), loginError = $('login-error');
+
+  function enterQuiz(id, name, section, passageId) {
+    currentStudent = { id: id, name: name, section: section };
+    currentPassage = getPassageById(passageId);
+    lastPassageId = currentPassage.id;
+    $('badge-id').textContent = 'No.' + id;
+    $('badge-name').textContent = name;
+    $('badge-section').textContent = section;
+    $('badge-passage').textContent = currentPassage.short;
+    buildPassage();
+    renderPassageChrome();
+    loginOverlay.classList.add('hidden');
+    appContent.classList.remove('hidden');
+    resetSession();
+    window.scrollTo(0, 0);
+    lucide.createIcons();
+  }
+
+  loginForm.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var id = $('student-id').value.trim();
+    var name = $('student-name').value.trim();
+    var section = $('student-section').value;
+    var passageId = $('passage-select').value;
+    if (!id || !name || !section || !passageId) {
+      loginError.textContent = 'Please fill in the Student ID, Name, Section, and Reading Passage.';
+      return;
+    }
+    var len = CONFIG.idLength;
+    if (len > 0 ? !new RegExp('^\\d{' + len + '}$').test(id) : !/^[A-Za-z0-9\-]{1,20}$/.test(id)) {
+      loginError.textContent = len > 0 ? 'Student ID must be exactly ' + len + ' digits (numbers only).' : 'Student ID can use letters, numbers and dashes (up to 20).';
+      return;
+    }
+    loginError.textContent = '';
+    enterQuiz(id, name, section, passageId);
+  });
+
+  $('logout-btn').addEventListener('click', function () {
+    currentStudent = null;
+    loginForm.reset();
+    if (lastPassageId) $('passage-select').value = lastPassageId;
+    updatePassageSelectMeta();
+    loginError.textContent = '';
+    appContent.classList.add('hidden');
+    loginOverlay.classList.remove('hidden');
+    resetSession();
+  });
+
+  function updatePassageSelectMeta() {
+    var host = $('passage-select-meta');
+    host.innerHTML = '';
+    var id = $('passage-select').value;
+    if (!id) return;
+    var p = getPassageById(id);
+    if (p.subtitle) {
+      var b = document.createElement('b');
+      b.textContent = p.subtitle;
+      host.appendChild(b);
+    }
+    if (p.blurb) host.appendChild(document.createTextNode((p.subtitle ? ' \u2014 ' : '') + p.blurb));
+  }
+  $('passage-select').addEventListener('change', updatePassageSelectMeta);
+
+  // ============== LEADERBOARD (teacher view) ==============
+  var lbOverlay = $('leaderboard-overlay');
+  function openLeaderboard() {
+    lbOverlay.classList.remove('hidden');
+    $('leaderboard-loading').classList.remove('hidden');
+    $('leaderboard-loading').textContent = 'Loading leaderboard\u2026';
+    $('leaderboard-table').classList.add('hidden');
+    $('leaderboard-empty').classList.add('hidden');
+    lucide.createIcons();
+    google.script.run
+      .withSuccessHandler(renderLeaderboard)
+      .withFailureHandler(function () { $('leaderboard-loading').textContent = 'Could not load the leaderboard right now. Please try again later.'; })
+      .getLeaderboard(teacherPin);
+  }
+  function renderLeaderboard(result) {
+    $('leaderboard-loading').classList.add('hidden');
+    if (!result || !result.success || !result.leaderboard || !result.leaderboard.length) {
+      $('leaderboard-empty').classList.remove('hidden');
+      return;
+    }
+    var tbody = $('leaderboard-tbody');
+    tbody.innerHTML = '';
+    result.leaderboard.forEach(function (entry) {
+      var tr = document.createElement('tr');
+      if (currentStudent && String(entry.studentId) === String(currentStudent.id) && entry.section === currentStudent.section) tr.classList.add('leaderboard-me');
+      var medal = entry.rank === 1 ? '\uD83E\uDD47 ' : entry.rank === 2 ? '\uD83E\uDD48 ' : entry.rank === 3 ? '\uD83E\uDD49 ' : '';
+      function td(text) { var c = document.createElement('td'); c.textContent = text; return c; }
+      tr.appendChild(td(medal + entry.rank));
+      tr.appendChild(td(entry.name));
+      tr.appendChild(td(entry.section));
+      var pTd = document.createElement('td');
+      if (entry.passageShort) {
+        var tag = document.createElement('span');
+        tag.className = 'leaderboard-passage-tag';
+        tag.textContent = entry.passageShort;
+        pTd.appendChild(tag);
+      } else { pTd.textContent = '\u2013'; }
+      tr.appendChild(pTd);
+      tr.appendChild(td(entry.accuracyPercent + '% (' + entry.miscueCount + ' miscue' + (entry.miscueCount === 1 ? '' : 's') + ' / ' + entry.totalWords + ' words)'));
+      tr.appendChild(td(entry.wcpm > 0 ? entry.wcpm + ' wcpm' : '\u2013\u2013'));
+      var printTd = document.createElement('td');
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'leaderboard-print-btn';
+      btn.setAttribute('aria-label', 'Print summary for ' + entry.name);
+      btn.innerHTML = '<i data-lucide="printer" style="width:15px;height:15px;"></i>';
+      btn.addEventListener('click', function () {
+        openReport(function (r) { r.getSessionDetail(teacherPin, entry.section, entry.rowNumber); });
+      });
+      printTd.appendChild(btn);
+      tr.appendChild(printTd);
+      tbody.appendChild(tr);
+    });
+    lucide.createIcons();
+    $('leaderboard-table').classList.remove('hidden');
+  }
+  function closeLeaderboard() { lbOverlay.classList.add('hidden'); }
+  $('leaderboard-btn-login').addEventListener('click', openLeaderboard);
+  $('leaderboard-btn-quiz').addEventListener('click', openLeaderboard);
+  $('leaderboard-close-btn').addEventListener('click', closeLeaderboard);
+  lbOverlay.addEventListener('click', function (e) { if (e.target === lbOverlay) closeLeaderboard(); });
+
+  // ============== CONFIRM MODAL ==============
+  var confirmResolve = null;
+  function openConfirmModal(title, message, okLabel) {
+    return new Promise(function (resolve) {
+      $('confirm-title').textContent = title;
+      $('confirm-message').textContent = message;
+      $('confirm-ok-label').textContent = okLabel || 'Confirm';
+      confirmResolve = resolve;
+      $('confirm-overlay').classList.remove('hidden');
+      $('confirm-ok-btn').focus();
+    });
+  }
+  function closeConfirmModal(result) {
+    $('confirm-overlay').classList.add('hidden');
+    if (confirmResolve) { var r = confirmResolve; confirmResolve = null; r(result); }
+  }
+  $('confirm-ok-btn').addEventListener('click', function () { closeConfirmModal(true); });
+  $('confirm-cancel-btn').addEventListener('click', function () { closeConfirmModal(false); });
+  $('confirm-overlay').addEventListener('click', function (e) { if (e.target === $('confirm-overlay')) closeConfirmModal(false); });
+
+  // ============== RESULT SUMMARY MODAL ==============
+  var RING_C = 2 * Math.PI * 52;
+  function scoreMessageFor(p) {
+    if (p >= 90) return 'Outstanding read-aloud \u2014 very few miscues!';
+    if (p >= 75) return 'Solid reading \u2014 only a handful of miscues to work on.';
+    if (p >= 50) return 'Reasonable effort \u2014 review the tagged words below to target practice.';
+    return 'This student would benefit from focused reading practice \u2014 see the tagged words below.';
+  }
+  function setResultSaveStatus(text, state) {
+    var el = $('result-save-status');
+    el.textContent = text;
+    el.classList.remove('result-save-ok', 'result-save-fail');
+    if (state === 'ok') el.classList.add('result-save-ok');
+    if (state === 'fail') el.classList.add('result-save-fail');
+  }
+  function fluencyCaption(acc, wcpm) {
+    return wcpm > 0
+      ? 'From ' + acc + '% accuracy + ' + wcpm + ' WCPM, reading only \u2014 not an official CEFR assessment.'
+      : 'From ' + acc + '% accuracy only (session was not timed), reading only \u2014 not an official CEFR assessment.';
+  }
+
+  function openResultModal(d) {
+    $('result-student-line').textContent = d.name + ' \u00b7 No.' + d.studentId + ' \u00b7 ' + d.section + ' \u00b7 ' + d.passageShort;
+    $('result-score-percent').textContent = d.scorePercent + '%';
+    $('result-message').textContent = scoreMessageFor(d.scorePercent);
+    $('result-located-value').textContent = d.total + '/' + d.total;
+    $('result-correct-value').textContent = d.miscueCount + '/' + d.total;
+    $('result-wcpm-value').textContent = d.wcpm > 0 ? String(d.wcpm) : '\u2013\u2013';
+    $('result-fluency-value').textContent = computeReadingFluencyBandClient(d.scorePercent, d.wcpm);
+    $('result-fluency-caption').textContent = fluencyCaption(d.scorePercent, d.wcpm);
+    var tier = computeWcpmTierClient(d.wcpm);
+    $('result-wcpm-tier-value').textContent = tier.label;
+    $('result-wcpm-tier-caption').textContent = tier.note + ' ' + CONFIG.caveat;
+
+    var scLine = $('result-selfcorrect-line');
+    if (d.selfCorrections > 0) {
+      var totalTagged = d.miscueCount + d.selfCorrections;
+      scLine.textContent = d.selfCorrections + ' self-corrected miscue' + (d.selfCorrections === 1 ? '' : 's') +
+        ' (' + Math.round(d.selfCorrections / totalTagged * 100) + '% self-correction rate) \u2014 not counted against accuracy or WCPM.';
+      scLine.classList.remove('hidden');
+    } else {
+      scLine.textContent = '';
+      scLine.classList.add('hidden');
+    }
+
+    resetAllRubrics();
+    RUBRICS[1].wrap.style.display = currentPassage.soundFocus ? '' : 'none';
+
+    var list = $('result-tally-list');
+    list.innerHTML = '';
+    var cats = Object.keys(d.tally || {}).filter(function (k) { return d.tally[k] > 0; });
+    $('result-tally-empty').classList.toggle('hidden', cats.length > 0);
+    cats.forEach(function (cat) {
+      var li = document.createElement('li');
+      li.style.borderRadius = '999px'; li.style.padding = '4px 12px'; li.style.fontSize = '.82rem';
+      if (cat === NON_ERROR_CATEGORY) { li.style.background = 'rgba(90,168,140,.18)'; li.style.border = '1px solid #357a63'; li.style.color = '#a7ddc7'; }
+      else if (TRUE_ERROR_CATEGORIES.indexOf(cat) !== -1) { li.style.background = 'rgba(217,164,65,.18)'; li.style.border = '1px solid var(--gold-deep)'; li.style.color = '#f0d79a'; }
+      else { li.style.background = '#172a47'; li.style.border = '1px solid #2e4a73'; li.style.color = '#f5f1e6'; }
+      li.textContent = cat + ': ' + d.tally[cat];
+      list.appendChild(li);
+    });
+
+    setResultSaveStatus('Saving your results\u2026', '');
+    var ring = $('result-ring-fill');
+    ring.style.transition = 'none';
+    ring.style.strokeDasharray = String(RING_C);
+    ring.style.strokeDashoffset = String(RING_C);
+    $('result-overlay').classList.remove('hidden');
+    lucide.createIcons();
+    requestAnimationFrame(function () {
+      ring.style.transition = 'stroke-dashoffset .8s ease';
+      ring.style.strokeDashoffset = String(RING_C * (1 - Math.max(0, Math.min(100, d.scorePercent)) / 100));
+    });
+  }
+  function closeResultModal() { $('result-overlay').classList.add('hidden'); }
+
+  /** Replaces the instant client numbers with what the server actually computed and stored. */
+  function reconcileResultModalWithServer(r) {
+    var total = Number(r.totalWords) || 0, miscue = Number(r.miscueCount) || 0;
+    var acc = Number(r.accuracyPercent) || 0, wcpm = Number(r.wcpm) || 0;
+    $('result-score-percent').textContent = acc + '%';
+    $('result-message').textContent = scoreMessageFor(acc);
+    $('result-located-value').textContent = total + '/' + total;
+    $('result-correct-value').textContent = miscue + '/' + total;
+    $('result-wcpm-value').textContent = wcpm > 0 ? String(wcpm) : '\u2013\u2013';
+    var ring = $('result-ring-fill');
+    ring.style.transition = 'stroke-dashoffset .5s ease';
+    ring.style.strokeDashoffset = String(RING_C * (1 - Math.max(0, Math.min(100, acc)) / 100));
+    if (r.readingFluencyBand) {
+      $('result-fluency-value').textContent = r.readingFluencyBand;
+      $('result-fluency-caption').textContent = fluencyCaption(acc, wcpm);
+    }
+    if (r.wcpmTierLabel) {
+      $('result-wcpm-tier-value').textContent = r.wcpmTierLabel;
+      $('result-wcpm-tier-caption').textContent = (r.wcpmTierNote || '') + ' ' + (r.wcpmTierCaveat || CONFIG.caveat);
+    }
+    if (lastSessionDetail) {
+      lastSessionDetail.totalWords = total;
+      lastSessionDetail.miscueCount = miscue;
+      lastSessionDetail.accuracyPercent = acc;
+      lastSessionDetail.wcpm = wcpm;
+      lastSessionDetail.selfCorrections = Number(r.selfCorrections) || 0;
+      if (r.readingFluencyBand) lastSessionDetail.readingFluencyBand = r.readingFluencyBand;
+      if (r.wcpmTierLabel) lastSessionDetail.wcpmTierLabel = r.wcpmTierLabel;
+      if (r.wcpmTierNote) lastSessionDetail.wcpmTierNote = r.wcpmTierNote;
+      if (r.wcpmTierCaveat) lastSessionDetail.wcpmTierCaveat = r.wcpmTierCaveat;
+    }
+  }
+
+  $('result-close-btn').addEventListener('click', closeResultModal);
+  $('result-continue-btn').addEventListener('click', closeResultModal);
+  $('result-leaderboard-btn').addEventListener('click', function () { closeResultModal(); openLeaderboard(); });
+  $('result-print-btn').addEventListener('click', function () {
+    if (lastSessionDetail) writePrintableDocument(window.open('', '_blank'), lastSessionDetail);
+  });
+  $('result-overlay').addEventListener('click', function (e) { if (e.target === $('result-overlay')) closeResultModal(); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    if (!$('confirm-overlay').classList.contains('hidden')) closeConfirmModal(false);
+    else if (!$('result-overlay').classList.contains('hidden')) closeResultModal();
+    else if (!lbOverlay.classList.contains('hidden')) closeLeaderboard();
+  });
+
+  // ============== SOUND / KEY-WORD HIGHLIGHTS ==============
+  var FOCUS_PRIORITY = ['custom', 'ed', 'wv', 'lr', 's'];
+  var FOCUS_LABELS = { custom: 'Key word', lr: 'L / R', wv: 'W / V', s: 'Final S / ES', ed: '-ED ending' };
+  var SOUND_TIP_ROWS = [
+    { key: 'custom', label: 'Key words', cls: 'cat-custom' },
+    { key: 'lr', label: 'L / R', cls: 'cat-lr' },
+    { key: 'wv', label: 'W / V', cls: 'cat-wv' },
+    { key: 's', label: 'Final S', cls: 'cat-s' },
+    { key: 'ed', label: '-ED', cls: 'cat-ed' }
+  ];
+  var MAX_CHIPS = 24;
+
+  function normalizeWordKey(word) { return String(word || '').toLowerCase().replace(/[^a-z]/g, ''); }
+
+  function buildFocusMap(passage) {
+    var map = {};
+    FOCUS_PRIORITY.forEach(function (cat) {
+      ((passage.focus && passage.focus[cat]) || []).forEach(function (item) {
+        String(item).split(' /')[0].split(/\s+/).forEach(function (w) {
+          var key = normalizeWordKey(w);
+          if (!key) return;
+          if (!map[key]) map[key] = [];
+          if (map[key].indexOf(cat) === -1) map[key].push(cat);
+        });
+      });
+    });
+    return map;
+  }
+
+  function renderSoundTip(passage) {
+    var host = $('sound-tip-rows'), legend = $('focus-legend');
+    host.innerHTML = ''; legend.innerHTML = '';
+    var any = false;
+    SOUND_TIP_ROWS.forEach(function (row) {
+      var words = (passage.focus && passage.focus[row.key]) || [];
+      if (!words.length) return;
+      any = true;
+      var rowEl = document.createElement('div');
+      rowEl.className = 'sound-tip-row';
+      var label = document.createElement('div');
+      label.className = 'sound-tip-row-label ' + row.cls;
+      label.textContent = row.label;
+      rowEl.appendChild(label);
+      var wordsEl = document.createElement('div');
+      wordsEl.className = 'sound-tip-words';
+      words.slice(0, MAX_CHIPS).forEach(function (w) {
+        var chip = document.createElement('span');
+        chip.className = 'sound-word-chip ' + row.cls;
+        chip.textContent = w;
+        wordsEl.appendChild(chip);
+      });
+      if (words.length > MAX_CHIPS) {
+        var more = document.createElement('span');
+        more.className = 'sound-tip-more';
+        more.textContent = '+' + (words.length - MAX_CHIPS) + ' more underlined in the passage';
+        wordsEl.appendChild(more);
+      }
+      rowEl.appendChild(wordsEl);
+      host.appendChild(rowEl);
+      var item = document.createElement('span');
+      item.className = 'focus-legend-item';
+      item.innerHTML = '<span class="focus-dot ' + row.cls + '"></span>';
+      item.appendChild(document.createTextNode(row.key === 'custom' ? 'Key words' : row.label));
+      legend.appendChild(item);
+    });
+    $('sound-tip').style.display = any ? '' : 'none';
+    $('sound-tip-hint').style.display = passage.soundFocus ? '' : 'none';
+    $('sound-tip-heading').textContent = passage.soundFocus ? 'Listen especially for these words and sounds' : 'Key words to listen for';
+    $('sound-toggle-btn').style.display = any ? '' : 'none';
+    document.querySelectorAll('.sound-chip').forEach(function (c) { c.style.display = passage.soundFocus ? '' : 'none'; });
+  }
+
+  function renderAfterReading(passage) {
+    var list = $('afterread-questions');
+    list.innerHTML = '';
+    (passage.questions || []).forEach(function (q) {
+      var li = document.createElement('li');
+      li.textContent = q;
+      list.appendChild(li);
+    });
+    var terms = $('afterread-terms');
+    terms.innerHTML = '';
+    (passage.terms || []).forEach(function (t) {
+      var chip = document.createElement('span');
+      chip.className = 'term-chip';
+      chip.textContent = t;
+      terms.appendChild(chip);
+    });
+    $('afterread-questions-wrap').style.display = (passage.questions || []).length ? '' : 'none';
+    $('afterread-terms-wrap').style.display = (passage.terms || []).length ? '' : 'none';
+    $('afterread-section').style.display = ((passage.questions || []).length || (passage.terms || []).length) ? '' : 'none';
+  }
+
+  function renderPassageChrome() {
+    var p = currentPassage;
+    $('header-passage-title').textContent = p.title;
+    $('header-passage-subtitle').textContent = p.subtitle || CONFIG.subject || '';
+    $('passage-meta-title').textContent = p.title;
+    $('passage-meta-count').textContent = p.wordCount + ' words';
+    renderSoundTip(p);
+    renderAfterReading(p);
+  }
+
+  $('sound-toggle-btn').addEventListener('click', function () {
+    var on = $('passage').classList.toggle('show-focus');
+    $('sound-toggle-btn').classList.toggle('active', on);
+    $('sound-toggle-btn').setAttribute('aria-pressed', on ? 'true' : 'false');
+    $('sound-toggle-label').textContent = 'Highlights: ' + (on ? 'On' : 'Off');
+  });
+
+  // ============== PASSAGE TAGGING ==============
+  var locked = false, wordTokens = [], activeToken = null;
+  var popover = $('cat-popover');
+
+  function buildPassage() {
+    var container = $('passage');
+    container.innerHTML = '';
+    wordTokens.length = 0;
+    var focusMap = buildFocusMap(currentPassage);
+    currentPassage.text.split(/(\s+)/).forEach(function (part) {
+      if (part === '') return;
+      if (/^\s+$/.test(part)) { container.appendChild(document.createTextNode(part)); return; }
+      var tok = makeToken(part, focusMap[normalizeWordKey(part)] || []);
+      wordTokens.push(tok);
+      container.appendChild(tok);
+    });
+  }
+
+  function makeToken(text, focusCats) {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'word-token';
+    btn.dataset.word = text;
+    btn.dataset.chosen = '';
+    btn.setAttribute('aria-pressed', 'false');
+    if (focusCats.length) {
+      btn.dataset.focus = focusCats[0];
+      btn.title = 'Listen for: ' + focusCats.map(function (c) { return FOCUS_LABELS[c]; }).join(', ');
+    }
+    renderTokenContent(btn);
+    btn.addEventListener('click', function (e) {
+      if (locked) return;
+      e.stopPropagation();
+      openPopover(btn);
+    });
+    return btn;
+  }
+
+  function renderTokenContent(btn) {
+    var chosen = btn.dataset.chosen;
+    btn.innerHTML = '';
+    if (chosen) {
+      var lbl = document.createElement('span');
+      lbl.className = 'tag-label';
+      lbl.textContent = ABBR[chosen] || chosen;
+      btn.appendChild(lbl);
+    }
+    btn.appendChild(document.createTextNode(btn.dataset.word));
+  }
+
+  function openPopover(btn) {
+    if (activeToken && activeToken !== btn) activeToken.classList.remove('open');
+    activeToken = btn;
+    btn.classList.add('open');
+    var r = btn.getBoundingClientRect();
+    popover.classList.remove('hidden');
+    var pw = popover.offsetWidth;
+    var left = window.scrollX + r.left;
+    var maxLeft = window.scrollX + document.documentElement.clientWidth - pw - 8;
+    if (left > maxLeft) left = maxLeft;
+    if (left < window.scrollX + 8) left = window.scrollX + 8;
+    popover.style.left = left + 'px';
+    popover.style.top = (window.scrollY + r.bottom + 6) + 'px';
+  }
+  function closePopover() {
+    popover.classList.add('hidden');
+    if (activeToken) activeToken.classList.remove('open');
+    activeToken = null;
+  }
+
+  popover.querySelectorAll('button').forEach(function (b) {
+    b.addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (!activeToken) return;
+      var cat = b.dataset.cat, tok = activeToken;
+      if (cat === '__remove') {
+        tok.dataset.chosen = '';
+        tok.classList.remove('tagged');
+        tok.setAttribute('aria-pressed', 'false');
+      } else {
+        tok.dataset.chosen = cat;
+        tok.classList.add('tagged');
+        tok.setAttribute('aria-pressed', 'true');
+      }
+      renderTokenContent(tok);
+      updateCount();
+      closePopover();
+    });
+  });
+  document.addEventListener('click', function (e) { if (!popover.contains(e.target)) closePopover(); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closePopover(); });
+
+  function updateCount() { $('tag-count').textContent = document.querySelectorAll('.word-token.tagged').length; }
+
+  // ============== FINISH & SAVE ==============
+  async function submitAnswers() {
+    if (locked) return;
+    var taggedCount = document.querySelectorAll('.word-token.tagged').length;
+    var ok = await openConfirmModal(
+      taggedCount === 0 ? 'No words tagged yet' : 'Finish this reading session?',
+      taggedCount === 0
+        ? 'You have not tagged any words yet. Save this session anyway?'
+        : 'This will lock the passage and save the results now \u2014 you will not be able to tag any more words afterward.',
+      taggedCount === 0 ? 'Save Anyway' : 'Finish & Save'
+    );
+    if (!ok) return;
+
+    closePopover();
+    locked = true;
+    $('passage').classList.add('locked');
+    var submitBtn = $('submit-answer-btn');
+    submitBtn.disabled = true;
+    submitBtn.style.opacity = '.5';
+    submitBtn.style.cursor = 'not-allowed';
+    submitBtn.querySelector('span').textContent = 'Saved';
+
+    var total = wordTokens.length, miscueCount = 0, selfCorrectionCount = 0;
+    var tally = {}, responses = [];
+    var sessionNotes = $('session-notes').value.trim();
+
+    wordTokens.forEach(function (btn, idx) {
+      var chosen = btn.dataset.chosen;
+      btn.classList.remove('tagged');
+      if (chosen) {
+        tally[chosen] = (tally[chosen] || 0) + 1;
+        if (chosen === NON_ERROR_CATEGORY) selfCorrectionCount++;
+        else if (TRUE_ERROR_CATEGORIES.indexOf(chosen) !== -1) miscueCount++;
+        btn.classList.add('reveal-partial');
+      }
+      responses.push({ index: idx, word: btn.dataset.word, category: chosen || null });
+    });
+
+    var accuracyPercent = total ? Math.round(((total - miscueCount) / total) * 100) : 0;
+    var durationSeconds = stopReadingTimer();
+    var wcpm = durationSeconds > 0 ? Math.round(Math.max(0, total - miscueCount) / (durationSeconds / 60)) : 0;
+
+    var scoreLine = $('score-line');
+    scoreLine.textContent = 'The student read ' + total + ' words. ' + miscueCount + ' miscue' + (miscueCount === 1 ? '' : 's') +
+      ' tagged \u2014 ' + accuracyPercent + '% accuracy' + (wcpm > 0 ? ' \u2014 ' + wcpm + ' WCPM.' : '.');
+
+    var list = $('feedback-list');
+    list.innerHTML = '';
+    var tpl = $('feedback-template');
+    responses.filter(function (r) { return r.category; }).forEach(function (r) {
+      var node = tpl.content.cloneNode(true);
+      node.querySelector('.feedback-icon').innerHTML = '<i data-lucide="alert-circle" style="width:18px;height:18px;color:#d9a441;"></i>';
+      node.querySelector('.feedback-cat').textContent = '[' + r.category + '] ';
+      node.querySelector('.feedback-body').textContent = '\u201c' + r.word + '\u201d';
+      list.appendChild(node);
+    });
+    var results = $('results-section');
+    results.classList.remove('hidden');
+    results.classList.add('fade-in');
+    lucide.createIcons();
+    results.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    openResultModal({
+      studentId: currentStudent.id, name: currentStudent.name, section: currentStudent.section,
+      total: total, miscueCount: miscueCount, scorePercent: accuracyPercent, tally: tally,
+      wcpm: wcpm, selfCorrections: selfCorrectionCount, passageShort: currentPassage.short
+    });
+
+    var tier = computeWcpmTierClient(wcpm);
+    lastSessionDetail = {
+      appTitle: CONFIG.appTitle, subject: CONFIG.subject, schoolName: CONFIG.schoolName,
+      studentId: currentStudent.id, name: currentStudent.name, section: currentStudent.section,
+      totalWords: total, miscueCount: miscueCount, accuracyPercent: accuracyPercent,
+      sessionNotes: sessionNotes, tally: tally, responses: responses, timestamp: new Date().toISOString(),
+      durationSeconds: durationSeconds, wcpm: wcpm, selfCorrections: selfCorrectionCount,
+      readingFluencyBand: computeReadingFluencyBandClient(accuracyPercent, wcpm),
+      wcpmTierLabel: tier.label, wcpmTierNote: tier.note, wcpmTierCaveat: CONFIG.caveat,
+      passageId: currentPassage.id, passageTitle: currentPassage.title, passageText: currentPassage.text,
+      soundFocusEnabled: currentPassage.soundFocus,
+      prosodyExpression: 0, prosodyPhrasing: 0, prosodySmoothness: 0, prosodyPunctuation: 0, prosodyOverallLevel: 0,
+      soundLR: 0, soundWV: 0, soundFinals: 0, soundEd: 0, soundOverallLevel: 0,
+      compMainIdea: 0, compDetails: 0, compTerms: 0, compOverallLevel: 0
+    };
+    lastSavedRowInfo = null;
+
+    sendSubmission({
+      studentId: currentStudent.id, name: currentStudent.name, section: currentStudent.section,
+      tally: tally, responses: responses, sessionNotes: sessionNotes,
+      durationSeconds: durationSeconds, passageId: currentPassage.id
+    }, scoreLine, 0);
+  }
+  $('submit-answer-btn').addEventListener('click', submitAnswers);
+
+  function sendSubmission(payload, scoreLine, attempt) {
+    function failFinal() {
+      scoreLine.textContent += ' (Your results could not be saved automatically \u2014 please try again or note the score by hand.)';
+      setResultSaveStatus('Could not save automatically \u2014 please try again or note the score by hand.', 'fail');
+    }
+    function retry(msg) {
+      setResultSaveStatus(msg, '');
+      setTimeout(function () { sendSubmission(payload, scoreLine, attempt + 1); }, 1500);
+    }
+    google.script.run
+      .withSuccessHandler(function (result) {
+        if (result && result.success) {
+          scoreLine.textContent += ' Your results have been recorded.';
+          setResultSaveStatus('Your results have been saved.', 'ok');
+          lastSavedRowInfo = { section: payload.section, rowNumber: result.rowNumber };
+          reconcileResultModalWithServer(result);
+        } else if (result && result.retryable && attempt < 1) {
+          retry('The server was busy \u2014 retrying automatically\u2026');
+        } else {
+          failFinal();
+          if (result && result.message) setResultSaveStatus(result.message, 'fail');
+        }
+      })
+      .withFailureHandler(function () {
+        if (attempt < 1) retry('Connection hiccup \u2014 retrying automatically\u2026');
+        else failFinal();
+      })
+      .submitReadingResult(teacherPin, payload);
+  }
+
+  function resetSession() {
+    locked = false;
+    lastSessionDetail = null;
+    closePopover();
+    closeResultModal();
+    $('passage').classList.remove('locked');
+    wordTokens.forEach(function (btn) {
+      btn.classList.remove('tagged', 'reveal-partial');
+      btn.dataset.chosen = '';
+      btn.setAttribute('aria-pressed', 'false');
+      renderTokenContent(btn);
+    });
+    updateCount();
+    $('session-notes').value = '';
+    $('results-section').classList.add('hidden');
+    $('feedback-list').innerHTML = '';
+    var submitBtn = $('submit-answer-btn');
+    submitBtn.disabled = false;
+    submitBtn.style.opacity = '';
+    submitBtn.style.cursor = '';
+    submitBtn.querySelector('span').textContent = 'Finish & Save';
+    resetReadingTimer();
+    activeProsodyNotes.clear();
+    document.querySelectorAll('.prosody-chip.active').forEach(function (c) { c.classList.remove('active'); });
+    resetAllRubrics();
+    lastSavedRowInfo = null;
+  }
+
+  // ============== PAGE START ==============
+  buildRubrics();
+  lucide.createIcons();
+  boot('');
+</script>

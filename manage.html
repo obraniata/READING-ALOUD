@@ -1,0 +1,287 @@
+<script>
+  // MANAGE SCREEN: edit Settings, Passages, Benchmarks and Student Access without opening the Sheet.
+  // Everything is saved into the Sheet tabs, so the Sheet and this screen always agree.
+  (function () {
+    var M = { data: null, tab: 'settings', editing: null, students: null };
+    var TABS = [['settings', 'Settings'], ['passages', 'Passages'], ['benchmarks', 'Benchmarks'], ['students', 'Students']];
+
+    var overlay = document.createElement('div');
+    overlay.id = 'manage-overlay';
+    overlay.className = 'hidden';
+    overlay.innerHTML =
+      '<div class="manage-card">' +
+      '<div class="manage-head"><h2>Manage</h2><button type="button" id="manage-close" class="manage-x" aria-label="Close">&times;</button></div>' +
+      '<div class="manage-tabs" id="manage-tabs"></div>' +
+      '<div id="manage-body" class="manage-body"></div>' +
+      '<p id="manage-msg" class="form-msg"></p></div>';
+    document.body.appendChild(overlay);
+
+    function el(id) { return document.getElementById(id); }
+    function say(text, kind) {
+      var m = el('manage-msg');
+      m.textContent = text || '';
+      m.className = 'form-msg' + (kind ? ' ' + kind : '');
+    }
+    function val(id) { return el(id).value; }
+
+    function openManage() {
+      overlay.classList.remove('hidden');
+      M.tab = 'settings'; M.editing = null;
+      say('', '');
+      el('manage-body').innerHTML = '<p class="lead">Loading&hellip;</p>';
+      renderTabs();
+      refresh(function () { render(); });
+    }
+    function closeManage() { overlay.classList.add('hidden'); }
+
+    function refresh(done) {
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (!res || !res.success) { say((res && res.message) || 'Could not load.', 'bad'); return; }
+          M.data = res;
+          if (done) done();
+        })
+        .withFailureHandler(function () { say('Could not reach the server. Please try again.', 'bad'); })
+        .getManageData(teacherPin);
+    }
+
+    function renderTabs() {
+      el('manage-tabs').innerHTML = TABS.map(function (t) {
+        return '<button type="button" class="manage-tab' + (M.tab === t[0] ? ' active' : '') + '" data-tab="' + t[0] + '">' + t[1] + '</button>';
+      }).join('');
+      el('manage-tabs').querySelectorAll('button').forEach(function (b) {
+        b.addEventListener('click', function () {
+          M.tab = b.dataset.tab; M.editing = null; say('', '');
+          renderTabs();
+          if (M.tab === 'students') loadStudents(); else render();
+        });
+      });
+    }
+
+    function render() {
+      if (!M.data) return;
+      if (M.tab === 'settings') renderSettings();
+      else if (M.tab === 'passages') renderPassages();
+      else if (M.tab === 'benchmarks') renderBenchmarks();
+      else renderStudents();
+    }
+
+    // ---------------- Settings ----------------
+    function renderSettings() {
+      var s = M.data.settings;
+      var warn = s.pin ? '' : '<div class="manage-warn"><b>No Teacher PIN is set.</b> Anyone with your teacher link, including students, could open this screen and change things. Type a PIN below and save.</div>';
+      el('manage-body').innerHTML = warn +
+        '<div class="m-grid">' +
+        '<div class="field-group"><label for="ms-title">App title</label><input type="text" id="ms-title" value="' + escHtml(s.appTitle) + '"></div>' +
+        '<div class="field-group"><label for="ms-subject">Subject / course</label><input type="text" id="ms-subject" value="' + escHtml(s.subject) + '"></div>' +
+        '<div class="field-group"><label for="ms-school">School / teacher name (printed on reports)</label><input type="text" id="ms-school" value="' + escHtml(s.schoolName) + '"></div>' +
+        '<div class="field-group"><label for="ms-sections">Sections (classes), separated by commas</label><input type="text" id="ms-sections" value="' + escHtml(s.sections) + '"></div>' +
+        '<div class="field-group"><label for="ms-idlen">Student ID length (digits, 0 = any ID)</label><input type="number" id="ms-idlen" min="0" max="20" value="' + escHtml(s.idLength) + '"></div>' +
+        '<div class="field-group"><label for="ms-method">How students unlock their own reports</label><select id="ms-method">' +
+        [['birthdate', 'Birthdate'], ['code', 'Secret code'], ['none', 'ID only']].map(function (o) {
+          return '<option value="' + o[0] + '"' + (s.accessMethod === o[0] ? ' selected' : '') + '>' + o[1] + '</option>';
+        }).join('') + '</select></div>' +
+        '<div class="field-group"><label for="ms-pin">Teacher PIN</label><input type="text" id="ms-pin" value="' + escHtml(s.pin) + '" placeholder="Leave empty for no PIN"></div>' +
+        '</div>' +
+        '<label class="m-check"><input type="checkbox" id="ms-lb"' + (s.showLeaderboard ? ' checked' : '') + '> Show the leaderboard to students (unticked: students see only their own reports)</label>' +
+        '<label class="m-check"><input type="checkbox" id="ms-sound"' + (s.defaultSound ? ' checked' : '') + '> Sound Focus on by default (L/R, W/V, final S, -ED). Each passage can override this.</label>' +
+        '<div class="field-group"><label for="ms-caveat">Benchmark caveat (shown beside the WCPM tier)</label><textarea id="ms-caveat" rows="2">' + escHtml(s.caveat) + '</textarea></div>' +
+        '<p class="hint-small">If you change how students unlock their reports, students will be asked to set it up again.</p>' +
+        '<p><button type="button" id="ms-save" class="gold-btn">Save settings</button></p>';
+      el('ms-save').addEventListener('click', saveSettings);
+    }
+
+    function saveSettings() {
+      var o = {
+        appTitle: val('ms-title'), subject: val('ms-subject'), schoolName: val('ms-school'), sections: val('ms-sections'),
+        idLength: val('ms-idlen'), accessMethod: val('ms-method'), pin: val('ms-pin').trim(),
+        showLeaderboard: el('ms-lb').checked, defaultSound: el('ms-sound').checked, caveat: val('ms-caveat')
+      };
+      el('ms-save').disabled = true;
+      say('Saving\u2026', '');
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (!res || !res.success) { el('ms-save').disabled = false; say((res && res.message) || 'Could not save.', 'bad'); return; }
+          teacherPin = o.pin;   // keep using the new PIN right away
+          reloadBoot(function () { refresh(function () { render(); say('Settings saved.', 'good'); }); });
+        })
+        .withFailureHandler(function () { el('ms-save').disabled = false; say('Could not reach the server. Please try again.', 'bad'); })
+        .saveSettings(teacherPin, o);
+    }
+
+    // ---------------- Passages ----------------
+    function renderPassages() {
+      if (M.editing) { renderPassageForm(M.editing); return; }
+      var list = M.data.passages;
+      var html = '<p><button type="button" id="mp-add" class="gold-btn">Add passage</button></p>';
+      if (!list.length) html += '<p class="lead">No passages yet. Click Add passage and paste your first reading.</p>';
+      list.forEach(function (p, i) {
+        html += '<div class="m-item' + (p.hidden ? ' m-dim' : '') + '"><div class="m-item-main"><b>' + escHtml(p.title || '(untitled)') + '</b>' +
+          '<span class="m-meta">' + p.wordCount + ' words' + (p.sound ? ' \u00b7 Sound Focus ' + p.sound : '') + (p.hidden ? ' \u00b7 hidden from the list' : '') + '</span></div>' +
+          '<div class="m-item-actions">' +
+          '<button type="button" class="ghost-btn" data-act="edit" data-i="' + i + '">Edit</button>' +
+          '<button type="button" class="ghost-btn" data-act="hide" data-i="' + i + '">' + (p.hidden ? 'Show' : 'Hide') + '</button>' +
+          '<button type="button" class="ghost-btn m-danger" data-act="del" data-i="' + i + '">Delete</button></div></div>';
+      });
+      html += '<p class="hint-small">Reports already saved keep the text that was read, so editing or deleting a passage never breaks old reports.</p>';
+      el('manage-body').innerHTML = html;
+      el('mp-add').addEventListener('click', function () {
+        M.editing = { rowNumber: 0, title: '', shortName: '', subtitle: '', description: '', text: '', q1: '', q2: '', q3: '', terms: '', sound: '', extra: '', hidden: false };
+        say('', ''); render();
+      });
+      el('manage-body').querySelectorAll('[data-act]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var p = M.data.passages[Number(b.dataset.i)];
+          if (b.dataset.act === 'edit') { M.editing = JSON.parse(JSON.stringify(p)); say('', ''); render(); }
+          else if (b.dataset.act === 'hide') { var c = JSON.parse(JSON.stringify(p)); c.hidden = !c.hidden; persistPassage(c, c.hidden ? 'Passage hidden.' : 'Passage shown.'); }
+          else if (window.confirm('Delete "' + p.title + '" permanently? Reports already saved will keep working.')) deletePassage(p);
+        });
+      });
+    }
+
+    function renderPassageForm(p) {
+      function f(id, label, v, ph) { return '<div class="field-group"><label for="' + id + '">' + label + '</label><input type="text" id="' + id + '" value="' + escHtml(v) + '" placeholder="' + escHtml(ph || '') + '"></div>'; }
+      el('manage-body').innerHTML =
+        '<h3 class="m-sub">' + (p.rowNumber ? 'Edit passage' : 'Add passage') + '</h3>' +
+        f('mp-title', 'Title', p.title, 'e.g. The Epic of Gilgamesh') +
+        '<div class="m-grid">' + f('mp-short', 'Short name (optional)', p.shortName) + f('mp-sub', 'Subtitle (optional)', p.subtitle) + '</div>' +
+        f('mp-desc', 'Description shown when choosing (optional)', p.description) +
+        '<div class="field-group"><label for="mp-text">Passage text (paste here) <span id="mp-count" class="m-meta"></span></label><textarea id="mp-text" rows="9">' + escHtml(p.text) + '</textarea></div>' +
+        f('mp-q1', 'Question 1 (optional)', p.q1) + f('mp-q2', 'Question 2 (optional)', p.q2) + f('mp-q3', 'Question 3 (optional)', p.q3) +
+        f('mp-terms', 'Key terms, separated by commas (optional)', p.terms) +
+        '<div class="m-grid"><div class="field-group"><label for="mp-sound">Sound Focus</label><select id="mp-sound">' +
+        [['', 'Use default'], ['On', 'On'], ['Off', 'Off']].map(function (o) { return '<option value="' + o[0] + '"' + (p.sound === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></div>' +
+        f('mp-extra', 'Extra words to highlight, separated by commas', p.extra, 'e.g. Enkidu, Humbaba') + '</div>' +
+        '<label class="m-check"><input type="checkbox" id="mp-hidden"' + (p.hidden ? ' checked' : '') + '> Hide this passage from the list</label>' +
+        '<p><button type="button" id="mp-save" class="gold-btn">Save passage</button> <button type="button" id="mp-cancel" class="ghost-btn">Cancel</button></p>';
+      function count() {
+        var n = val('mp-text').split(/\s+/).filter(Boolean).length;
+        el('mp-count').textContent = n + ' words' + (n > 250 ? ' (long: tagging will be slower)' : '');
+      }
+      el('mp-text').addEventListener('input', count); count();
+      el('mp-cancel').addEventListener('click', function () { M.editing = null; say('', ''); render(); });
+      el('mp-save').addEventListener('click', function () {
+        persistPassage({
+          rowNumber: p.rowNumber, title: val('mp-title'), shortName: val('mp-short'), subtitle: val('mp-sub'), description: val('mp-desc'),
+          text: val('mp-text'), q1: val('mp-q1'), q2: val('mp-q2'), q3: val('mp-q3'), terms: val('mp-terms'),
+          sound: val('mp-sound'), extra: val('mp-extra'), hidden: el('mp-hidden').checked
+        }, 'Passage saved.');
+      });
+    }
+
+    function persistPassage(p, okMsg) {
+      say('Saving\u2026', '');
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (!res || !res.success) { say((res && res.message) || 'Could not save.', 'bad'); return; }
+          M.editing = null;
+          reloadBoot(function () { refresh(function () { render(); say(okMsg, 'good'); }); });
+        })
+        .withFailureHandler(function () { say('Could not reach the server. Please try again.', 'bad'); })
+        .savePassage(teacherPin, p);
+    }
+
+    function deletePassage(p) {
+      say('Deleting\u2026', '');
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (!res || !res.success) { say((res && res.message) || 'Could not delete.', 'bad'); return; }
+          reloadBoot(function () { refresh(function () { render(); say('Passage deleted.', 'good'); }); });
+        })
+        .withFailureHandler(function () { say('Could not reach the server. Please try again.', 'bad'); })
+        .deletePassage(teacherPin, p.rowNumber);
+    }
+
+    // ---------------- Benchmarks ----------------
+    function renderBenchmarks() {
+      var tiers = M.data.tiers.map(function (t) { return { min: t.min, label: t.label, note: t.note }; });
+      function draw() {
+        var rows = tiers.map(function (t, i) {
+          return '<tr><td><input type="number" min="0" class="mb-min" data-i="' + i + '" value="' + escHtml(t.min) + '"></td>' +
+            '<td><input type="text" class="mb-label" data-i="' + i + '" value="' + escHtml(t.label) + '"></td>' +
+            '<td><input type="text" class="mb-note" data-i="' + i + '" value="' + escHtml(t.note) + '"></td>' +
+            '<td><button type="button" class="ghost-btn m-danger" data-del="' + i + '">Remove</button></td></tr>';
+        }).join('');
+        el('manage-body').innerHTML =
+          '<p class="lead">Each tier starts at its minimum words correct per minute (WCPM). Adjust these to match your students.</p>' +
+          '<div class="table-scroll"><table class="data-table"><thead><tr><th>Minimum WCPM</th><th>Tier label</th><th>Note</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+          '<p><button type="button" id="mb-add" class="ghost-btn">Add tier</button> <button type="button" id="mb-save" class="gold-btn">Save benchmarks</button></p>';
+        el('manage-body').querySelectorAll('input').forEach(function (inp) {
+          inp.addEventListener('input', function () {
+            var i = Number(inp.dataset.i);
+            if (inp.classList.contains('mb-min')) tiers[i].min = inp.value;
+            else if (inp.classList.contains('mb-label')) tiers[i].label = inp.value;
+            else tiers[i].note = inp.value;
+          });
+        });
+        el('manage-body').querySelectorAll('[data-del]').forEach(function (b) {
+          b.addEventListener('click', function () { tiers.splice(Number(b.dataset.del), 1); draw(); });
+        });
+        el('mb-add').addEventListener('click', function () { tiers.push({ min: '', label: '', note: '' }); draw(); });
+        el('mb-save').addEventListener('click', function () {
+          say('Saving\u2026', '');
+          google.script.run
+            .withSuccessHandler(function (res) {
+              if (!res || !res.success) { say((res && res.message) || 'Could not save.', 'bad'); return; }
+              reloadBoot(function () { refresh(function () { render(); say('Benchmarks saved.', 'good'); }); });
+            })
+            .withFailureHandler(function () { say('Could not reach the server. Please try again.', 'bad'); })
+            .saveBenchmarks(teacherPin, tiers);
+        });
+      }
+      draw();
+    }
+
+    // ---------------- Students (forgotten birthdate / code) ----------------
+    function loadStudents() {
+      el('manage-body').innerHTML = '<p class="lead">Loading&hellip;</p>';
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (!res || !res.success) { say((res && res.message) || 'Could not load.', 'bad'); return; }
+          M.students = res.students;
+          renderStudents();
+        })
+        .withFailureHandler(function () { say('Could not reach the server. Please try again.', 'bad'); })
+        .getStudentAccessList(teacherPin);
+    }
+
+    function renderStudents() {
+      if (!M.students) { loadStudents(); return; }
+      el('manage-body').innerHTML =
+        '<p class="lead">What each student typed to protect their own reports. Tell a student what it says if they forget, or reset it so they can choose again.</p>' +
+        '<div class="field-group"><label for="mst-search">Search by ID or name</label><input type="text" id="mst-search" placeholder="Type to filter"></div>' +
+        '<div class="table-scroll"><table class="data-table"><thead><tr><th>ID</th><th>Name</th><th>Section</th><th>Type</th><th>Entry</th><th>Last used</th><th></th></tr></thead><tbody id="mst-body"></tbody></table></div>' +
+        '<p id="mst-empty" class="lead"></p>';
+      function draw() {
+        var q = val('mst-search').trim().toLowerCase();
+        var rows = M.students.filter(function (s) { return !q || (s.studentId + ' ' + s.name).toLowerCase().indexOf(q) !== -1; });
+        el('mst-body').innerHTML = rows.map(function (s) {
+          return '<tr><td>' + escHtml(s.studentId) + '</td><td>' + escHtml(s.name) + '</td><td>' + escHtml(s.section) + '</td><td>' + (s.method === 'code' ? 'Secret code' : 'Birthdate') + '</td>' +
+            '<td><b>' + escHtml(s.secret) + '</b></td><td>' + (s.lastUsed ? new Date(s.lastUsed).toLocaleDateString() : '\u2013') + '</td>' +
+            '<td><button type="button" class="ghost-btn m-danger" data-row="' + s.rowNumber + '">Reset</button></td></tr>';
+        }).join('');
+        el('mst-empty').textContent = rows.length ? '' : (M.students.length ? 'No match.' : 'No students have set up access yet.');
+        el('mst-body').querySelectorAll('[data-row]').forEach(function (b) {
+          b.addEventListener('click', function () {
+            if (!window.confirm('Reset this student\'s entry? They will be asked to choose a new one.')) return;
+            say('Resetting\u2026', '');
+            google.script.run
+              .withSuccessHandler(function (res) {
+                if (!res || !res.success) { say((res && res.message) || 'Could not reset.', 'bad'); return; }
+                M.students = null; say('Entry reset.', 'good'); loadStudents();
+              })
+              .withFailureHandler(function () { say('Could not reach the server. Please try again.', 'bad'); })
+              .resetStudentAccess(teacherPin, Number(b.dataset.row));
+          });
+        });
+      }
+      el('mst-search').addEventListener('input', draw);
+      draw();
+    }
+
+    el('manage-close').addEventListener('click', closeManage);
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) closeManage(); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !overlay.classList.contains('hidden')) closeManage(); });
+    document.getElementById('manage-btn-login').addEventListener('click', openManage);
+  })();
+</script>

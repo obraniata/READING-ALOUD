@@ -1,0 +1,194 @@
+<script>
+  // Shared by the teacher page and the student page: category colors, the
+  // printable A4 report, and the "open a report in a new tab" helper.
+  var TRUE_ERROR_CATEGORIES = ['Mispronunciation', 'Substitution', 'Omission', 'Hesitation'];
+  var NON_ERROR_CATEGORY = 'Self-Correction';
+  var CATEGORY_ORDER = ["Mispronunciation", "Omission", "Insertion", "Substitution", "Repetition",
+    "Self-Correction", "Punctuation/Pause", "Intonation/Stress", "Hesitation"];
+  var ABBR = {
+    "Mispronunciation": "Mispron.", "Omission": "Omit", "Insertion": "Insert", "Substitution": "Subst.",
+    "Repetition": "Repeat", "Self-Correction": "Self-Cor.", "Punctuation/Pause": "Pause",
+    "Intonation/Stress": "Inton.", "Hesitation": "Hesit."
+  };
+  var CATEGORY_COLORS = {
+    "Mispronunciation": { bg: "#fde2d8", border: "#c0492b", text: "#8a3115" },
+    "Omission": { bg: "#fbdcdc", border: "#b13a3a", text: "#7a2424" },
+    "Insertion": { bg: "#dbe9f7", border: "#2f6fa3", text: "#1d4c72" },
+    "Substitution": { bg: "#ecdcf7", border: "#7a3fa0", text: "#552b70" },
+    "Repetition": { bg: "#fbe8c9", border: "#b9750a", text: "#7d4e07" },
+    "Self-Correction": { bg: "#dcf3e4", border: "#1f8a4c", text: "#155c33" },
+    "Punctuation/Pause": { bg: "#d6f0ec", border: "#157a68", text: "#0e5548" },
+    "Intonation/Stress": { bg: "#e2e6ee", border: "#33415c", text: "#232d40" },
+    "Hesitation": { bg: "#e8e8e8", border: "#5f5f5f", text: "#3d3d3d" }
+  };
+
+  function escHtml(value) {
+    return String(value === undefined || value === null ? '' : value)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function accuracyBand(percent) {
+    if (percent >= 90) return { label: 'Excellent', bg: '#1f8a4c' };
+    if (percent >= 75) return { label: 'Good', bg: '#2f8f6f' };
+    if (percent >= 50) return { label: 'Fair', bg: '#c9861f' };
+    return { label: 'Needs Practice', bg: '#b13a3a' };
+  }
+
+  /** Opens a blank tab immediately (so popup blockers allow it), then fills it when the server answers. */
+  function openReport(invoke) {
+    var win = window.open('', '_blank');
+    function say(msg) {
+      if (!win) return;
+      win.document.open();
+      win.document.write('<p style="font-family:sans-serif;padding:24px;">' + escHtml(msg) + '</p>');
+      win.document.close();
+    }
+    say('Loading report\u2026');
+    invoke(google.script.run
+      .withSuccessHandler(function (detail) {
+        if (!detail || !detail.success) { say((detail && detail.message) || 'That report could not be loaded.'); return; }
+        writePrintableDocument(win, detail);
+      })
+      .withFailureHandler(function () { say('Could not reach the server. Please try again.'); }));
+  }
+
+  /** The passage text with every tagged word highlighted in its category color. */
+  function buildMarkedPassageHtml(responses, text) {
+    var byIndex = {};
+    (responses || []).forEach(function (r) { if (r && r.category) byIndex[r.index] = r.category; });
+    var wordIdx = 0, html = '';
+    String(text || '').split(/(\s+)/).forEach(function (part) {
+      if (part === '') return;
+      if (/^\s+$/.test(part)) { html += part; return; }
+      var cat = byIndex[wordIdx];
+      var escaped = escHtml(part);
+      if (cat) {
+        var c = CATEGORY_COLORS[cat] || { bg: "#faedc8", border: "#c28a1e", text: "#7a5614" };
+        html += '<span style="background:' + c.bg + ';border-bottom:2px solid ' + c.border + ';border-radius:2px;padding:0 2px;">' +
+          escaped + '<sup style="font-size:.6em;color:' + c.text + ';font-weight:700;">&nbsp;' + (ABBR[cat] || escHtml(cat)) + '</sup></span>';
+      } else {
+        html += escaped;
+      }
+      wordIdx++;
+    });
+    return html;
+  }
+
+  function buildRubricSectionHtml(title, overallLevel, criteria) {
+    if (!overallLevel) return '<h2>' + title + '</h2><p style="color:#777;font-size:.9rem;">Not rated for this session.</p>';
+    var bars = criteria.map(function (c) {
+      return '<div style="margin-bottom:9px;"><div style="display:flex;justify-content:space-between;font-size:.85rem;margin-bottom:3px;"><span>' + c.label +
+        '</span><span style="font-weight:700;">' + c.value + ' / 4</span></div><div style="height:8px;background:#eee;border-radius:99px;overflow:hidden;"><div style="height:100%;width:' +
+        (c.value / 4 * 100) + '%;background:#c28a1e;border-radius:99px;"></div></div></div>';
+    }).join('');
+    return '<h2>' + title + '</h2><div style="display:flex;align-items:baseline;gap:10px;margin-bottom:10px;"><span style="font-size:1.5rem;font-weight:800;color:#c28a1e;">Level ' +
+      overallLevel + ' / 4</span><span style="font-size:.82rem;color:#666;">rated by teacher after the session, 1\u20134 scale</span></div><div class="passage" style="padding:14px 18px;">' + bars + '</div>';
+  }
+
+  /** Writes the complete A4 report into an open window and starts the print dialog (choose "Save as PDF"). */
+  function writePrintableDocument(win, detail) {
+    if (!win) { alert('Your browser blocked the print window. Please allow popups for this site and try again.'); return; }
+    var tally = detail.tally || {};
+    var maxCount = Math.max(1, Object.keys(tally).reduce(function (m, k) { return Math.max(m, tally[k] || 0); }, 0));
+
+    var barsHtml = CATEGORY_ORDER.map(function (cat) {
+      var c = CATEGORY_COLORS[cat], count = tally[cat] || 0;
+      var scoringTag = '(tracked only)';
+      if (TRUE_ERROR_CATEGORIES.indexOf(cat) !== -1) scoringTag = '(scored)';
+      else if (cat === NON_ERROR_CATEGORY) scoringTag = '(credited)';
+      return '<div style="display:flex;align-items:center;gap:10px;margin-bottom:7px;">' +
+        '<div style="width:200px;font-size:.82rem;color:#333;text-align:right;">' + cat + ' <span style="color:#999;font-size:.72rem;">' + scoringTag + '</span></div>' +
+        '<div style="flex:1;background:#eee;border-radius:5px;height:16px;overflow:hidden;">' +
+        (count > 0 ? '<div style="width:' + Math.max(Math.round(count / maxCount * 100), 6) + '%;height:100%;background:' + c.border + ';border-radius:5px;"></div>' : '') +
+        '</div><div style="width:22px;font-size:.82rem;font-weight:700;color:' + c.text + ';">' + count + '</div></div>';
+    }).join('');
+
+    var logRows = (detail.responses || []).filter(function (r) { return r.category; }).map(function (r) {
+      var c = CATEGORY_COLORS[r.category] || { bg: '#eee', border: '#999', text: '#333' };
+      return '<tr><td style="padding:6px 10px;border-bottom:1px solid #e5e5e5;">\u201c' + escHtml(r.word) + '\u201d</td><td style="padding:6px 10px;border-bottom:1px solid #e5e5e5;">' +
+        '<span style="background:' + c.bg + ';color:' + c.text + ';border:1px solid ' + c.border + ';border-radius:999px;padding:2px 10px;font-size:.78rem;font-weight:700;">' + escHtml(r.category) + '</span></td></tr>';
+    }).join('');
+
+    var band = accuracyBand(detail.accuracyPercent);
+    var dateLabel = detail.timestamp ? new Date(detail.timestamp).toLocaleString() : new Date().toLocaleString();
+    var notes = detail.sessionNotes ? escHtml(detail.sessionNotes) : 'No notes were entered for this session.';
+    var wcpm = detail.wcpm || 0, secs = detail.durationSeconds || 0;
+    var wcpmLabel = wcpm > 0 ? String(wcpm) : '\u2013\u2013';
+    var durationLabel = secs > 0 ? Math.floor(secs / 60) + 'm ' + (secs % 60) + 's' : 'Not timed';
+    var sc = detail.selfCorrections || 0;
+    var allTagged = Object.keys(tally).reduce(function (sum, k) { return sum + (tally[k] || 0); }, 0);
+    var scRate = allTagged > 0 ? Math.round(sc / allTagged * 100) + '%' : '0%';
+    var title = detail.passageTitle || detail.appTitle || 'Reading Assessment';
+    var subLine = [detail.subject, 'Read-Aloud Reading Assessment Report', detail.schoolName].filter(Boolean).map(escHtml).join(' \u00b7 ');
+
+    var rubrics =
+      buildRubricSectionHtml('Prosody &amp; Expression', detail.prosodyOverallLevel || 0, [
+        { label: 'Expression &amp; Volume', value: detail.prosodyExpression || 0 },
+        { label: 'Phrasing &amp; Syntax', value: detail.prosodyPhrasing || 0 },
+        { label: 'Smoothness &amp; Pausing', value: detail.prosodySmoothness || 0 },
+        { label: 'Punctuation Adherence', value: detail.prosodyPunctuation || 0 }]) +
+      (detail.soundFocusEnabled ? buildRubricSectionHtml('Sound Focus (L/R, W/V, final S, -ED)', detail.soundOverallLevel || 0, [
+        { label: 'L &amp; R Sounds', value: detail.soundLR || 0 },
+        { label: 'W &amp; V Sounds', value: detail.soundWV || 0 },
+        { label: 'Final S / ES', value: detail.soundFinals || 0 },
+        { label: '-ED Endings', value: detail.soundEd || 0 }]) : '') +
+      buildRubricSectionHtml('Comprehension (spoken answers)', detail.compOverallLevel || 0, [
+        { label: 'Main Idea', value: detail.compMainIdea || 0 },
+        { label: 'Key Details', value: detail.compDetails || 0 },
+        { label: 'Key Terms &amp; Vocabulary', value: detail.compTerms || 0 }]);
+
+    var html =
+      '<!doctype html><html><head><meta charset="UTF-8"><title>Reading Assessment Report - ' + escHtml(detail.name) + '</title><style>' +
+      '@page{size:A4;margin:14mm}*{box-sizing:border-box}' +
+      'body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;color:#222;line-height:1.6;margin:0;background:#fff}' +
+      '.banner{background:linear-gradient(135deg,#1f4e8c 0%,#0a1424 100%);color:#fff;border-radius:12px;padding:22px 26px;margin-bottom:18px;display:flex;justify-content:space-between;align-items:center;gap:16px}' +
+      '.banner h1{font-size:1.25rem;margin:0 0 4px}.banner .sub{font-size:.85rem;color:#cfdcf0}' +
+      '.score-badge{background:rgba(255,255,255,.14);border:2px solid rgba(255,255,255,.5);border-radius:999px;padding:10px 22px;text-align:center}' +
+      '.score-badge .num{font-size:1.6rem;font-weight:800;line-height:1}.score-badge .lbl{font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:#cfdcf0}' +
+      '.info-row{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:18px}' +
+      '.info-chip{background:#f4f4f4;border-left:4px solid #c28a1e;border-radius:6px;padding:8px 14px;font-size:.85rem}.info-chip b{display:block;font-size:.95rem}' +
+      '.cards-row{display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap}' +
+      '.stat-card{flex:1;min-width:120px;border-radius:10px;padding:14px 16px;color:#fff}.stat-card .val{font-size:1.5rem;font-weight:800}' +
+      '.stat-card .lbl{font-size:.75rem;text-transform:uppercase;letter-spacing:.05em;opacity:.9}' +
+      '.selfcorrect-note{background:#eaf7f0;border:1px solid #bfe3d0;color:#1f6b47;border-radius:8px;padding:8px 14px;font-size:.84rem;margin-bottom:12px}' +
+      '.fluency-note{background:#fdf6e3;border:1px solid #ecd59a;color:#7a5614;border-radius:8px;padding:10px 16px 12px;margin-bottom:12px}' +
+      '.wcpm-tier-note{background:#eaf3f7;border:1px solid #bcdbe8;color:#1f5a6b;border-radius:8px;padding:10px 16px 12px;margin-bottom:20px}' +
+      '.lv-label{display:block;font-size:.68rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;margin-bottom:3px}' +
+      '.lv-value{font-size:1.9rem;font-weight:800;line-height:1.15}.lv-tag{font-size:.76rem;margin-left:10px}.lv-explain{display:block;font-size:.82rem;margin-top:5px}' +
+      'h2{font-size:1rem;margin:22px 0 10px;color:#14284a;border-bottom:2px solid #c28a1e;padding-bottom:5px;display:inline-block}' +
+      '.passage{font-size:1.02rem;background:#fafafa;border:1px solid #e5e5e5;border-radius:10px;padding:16px 18px}table{border-collapse:collapse;width:100%}' +
+      '.notes-box{border:1px solid #ddd;background:#fafafa;border-radius:8px;padding:12px 14px;min-height:40px;white-space:pre-wrap;font-size:.92rem}' +
+      '.sig{margin-top:34px;display:flex;gap:40px;page-break-inside:avoid}.sig div{flex:1;border-top:1px solid #444;padding-top:4px;font-size:.82rem;color:#444}' +
+      '@media print{.banner,.stat-card{-webkit-print-color-adjust:exact;print-color-adjust:exact}}' +
+      '</style></head><body>' +
+      '<div class="banner"><div><h1>' + escHtml(title) + '</h1><div class="sub">' + subLine + '</div></div>' +
+      '<div class="score-badge"><div class="num">' + detail.accuracyPercent + '%</div><div class="lbl">' + band.label + '</div></div></div>' +
+      '<div class="info-row">' +
+      '<div class="info-chip">Student<b>' + escHtml(detail.name) + '</b></div>' +
+      '<div class="info-chip">ID No.<b>' + escHtml(detail.studentId) + '</b></div>' +
+      '<div class="info-chip">Section<b>' + escHtml(detail.section) + '</b></div>' +
+      '<div class="info-chip">Date<b>' + escHtml(dateLabel) + '</b></div>' +
+      '<div class="info-chip">Reading Duration<b>' + durationLabel + '</b></div></div>' +
+      '<div class="cards-row">' +
+      '<div class="stat-card" style="background:' + band.bg + ';"><div class="val">' + detail.accuracyPercent + '%</div><div class="lbl">Accuracy \u2014 ' + band.label + '</div></div>' +
+      '<div class="stat-card" style="background:#2f6fa3;"><div class="val">' + detail.totalWords + '</div><div class="lbl">Words Read</div></div>' +
+      '<div class="stat-card" style="background:#7a3fa0;"><div class="val">' + detail.miscueCount + '</div><div class="lbl">True Errors</div></div>' +
+      '<div class="stat-card" style="background:#c9861f;"><div class="val">' + wcpmLabel + '</div><div class="lbl">WCPM</div></div></div>' +
+      '<div class="selfcorrect-note">' + sc + ' self-corrected miscue' + (sc === 1 ? '' : 's') + ' (' + scRate + ' self-correction rate) \u2014 counted as a self-monitoring strength, not against Accuracy or WCPM.</div>' +
+      '<div class="fluency-note"><span class="lv-label">Reading Fluency Band</span><span class="lv-value">' + escHtml(detail.readingFluencyBand || 'Not available') + '</span><span class="lv-tag">reading-only est.</span>' +
+      '<span class="lv-explain">From accuracy + WCPM, reading only \u2014 not an official CEFR assessment (real CEFR also covers writing, listening &amp; speaking, usually with comprehension).</span></div>' +
+      '<div class="wcpm-tier-note"><span class="lv-label">WCPM Tier</span><span class="lv-value">' + escHtml(detail.wcpmTierLabel || 'Not available') + '</span><span class="lv-tag">EFL benchmark</span>' +
+      '<span class="lv-explain">' + escHtml((detail.wcpmTierNote || '') + ' ' + (detail.wcpmTierCaveat || '')) + '</span></div>' +
+      '<h2>Skills Breakdown</h2><p style="color:#777;font-size:.82rem;margin:0 0 8px;">Mispronunciation, Substitution, Omission &amp; Hesitation are scored (drive Accuracy/WCPM). Self-Correction is credited. The rest are tracked only.</p>' +
+      '<div>' + barsHtml + '</div>' + rubrics +
+      '<h2>Reading Passage (miscues highlighted by type)</h2><div class="passage">' + buildMarkedPassageHtml(detail.responses, detail.passageText) + '</div>' +
+      (logRows ? '<h2>Miscue Log</h2><table><tr><th style="text-align:left;padding:6px 10px;color:#666;font-size:.78rem;text-transform:uppercase;">Word</th><th style="text-align:left;padding:6px 10px;color:#666;font-size:.78rem;text-transform:uppercase;">Category</th></tr>' + logRows + '</table>' : '') +
+      '<h2>Session Notes</h2><div class="notes-box">' + notes + '</div>' +
+      '<div class="sig"><div>Teacher Signature</div><div>Date</div></div>' +
+      '<script>window.onload=function(){setTimeout(function(){window.print();},200);};<\/script></body></html>';
+
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+  }
+</script>
